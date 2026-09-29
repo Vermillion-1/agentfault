@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 results/*.tmp
+
+# External corpora: fetched, never committed (see corpus/LICENSES.md)
+corpus/external/bugsinpy/

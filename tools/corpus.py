@@ -47,7 +47,7 @@ OK, FAIL = f"{G}OK{OFF}  ", f"{R}FAIL{OFF}"
 
 def load_faults(only=None):
     out = []
-    for p in sorted(FAULTS.glob("*.json")):
+    for p in sorted(FAULTS.rglob("*.json")):
         f = json.loads(p.read_text())
         f["_path"] = p
         if only is None or f["id"] == only:
@@ -79,11 +79,24 @@ def materialise(fault, dest: Path) -> Path:
     return dest
 
 
-def run_pytest(cwd: Path):
-    """Return (all_passed, sorted failing node ids)."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--no-header", "-rf", "--tb=no", "-p", "no:cacheprovider"],
-        cwd=cwd, capture_output=True, text=True)
+def run_pytest(cwd: Path, timeout: float = None):
+    """Return (all_passed, sorted failing node ids).
+
+    `timeout` matters for GENERATED faults and not for hand-written ones. Mutation
+    operators can produce non-terminating programs -- turning a `break` into a
+    `continue` inside a while loop is a one-token edit that makes the suite hang
+    forever. That mutant is neither "equivalent" nor "killed"; it is a third outcome
+    the mutation literature's usual framing does not name. Screening must bound it
+    or the corpus build never finishes. On timeout we return the sentinel
+    ["<timeout>"], which the caller discards.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "--no-header", "-rf", "--tb=no",
+             "-p", "no:cacheprovider"],
+            cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, ["<timeout>"]
     failing = sorted(set(re.findall(r"^(?:FAILED|ERROR)\s+(\S+)", proc.stdout, re.M)))
     passed = proc.returncode == 0
     return passed, failing
@@ -148,6 +161,9 @@ def main():
 
     v = sub.add_parser("verify", help="check every fault label against reality")
     v.add_argument("-f", "--fault", help="verify only this fault id")
+    v.add_argument("--sample", type=int, default=0,
+                   help="verify a deterministic random sample of N (for generated sets)")
+    v.add_argument("--prefix", help="only faults whose id starts with this")
 
     m = sub.add_parser("materialise", help="write a faulty checkout to a directory")
     m.add_argument("fault")
@@ -155,7 +171,14 @@ def main():
 
     a = ap.parse_args()
     if a.cmd == "verify":
-        sys.exit(1 if verify(load_faults(a.fault)) else 0)
+        faults = load_faults(a.fault)
+        if getattr(a, "prefix", None):
+            faults = [f for f in faults if f["id"].startswith(a.prefix)]
+        if getattr(a, "sample", 0):
+            import random
+            random.Random(0).shuffle(faults)          # deterministic sample
+            faults = sorted(faults[:a.sample], key=lambda f: f["id"])
+        sys.exit(1 if verify(faults) else 0)
 
     f = load_faults(a.fault)[0]
     dest = materialise(f, Path(a.out).resolve())

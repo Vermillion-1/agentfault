@@ -19,7 +19,9 @@ Everything else here is careful engineering.
 
 | Phase | State |
 |---|---|
-| Fault corpus + injector + label gate | **working** — 12 faults, 2 repos, all labels verified |
+| Fault corpus + injector + label gate | **working** — 12 hand-written + **211 generated**, 2 repos, labels verified |
+| Mechanical fault generation (cosmic-ray) | **working** — `tools/inject.py`, gate used as filter |
+| External corpora, licence-gated fetch | **working** — QuixBugs vendored, BugsInPy fetch-only |
 | Retrieval sweep (11 arms x 4 observation levels) | **working** — 528 cells, results committed |
 | Minimal ReAct agent (native tool calling) | **working** — verified end to end on one fault |
 | Batch agent sweep with seeds | not started |
@@ -27,6 +29,9 @@ Everything else here is careful engineering.
 
 ```sh
 python3 tools/corpus.py verify     # gate every fault label
+python3 tools/corpus.py verify --prefix intervals-gen --sample 12   # sample a generated set
+python3 tools/inject.py generate intervals    # mechanically generate + screen
+python3 corpus/external/fetch.py status       # external corpora + licence posture
 python3 runner/sweep.py            # retrieval grid -> results/retrieval_raw.csv
 python3 runner/report.py           # regenerate results/REPORT.md from the CSV
 python3 tools/env.py               # confirm keys load (prints presence, never values)

@@ -1,0 +1,8 @@
+{
+  "name": "quixbugs",
+  "url": "https://github.com/jkoppel/QuixBugs.git",
+  "ref": "master",
+  "commit": "4257f44b0ff1181dedaedee6a447e133219fcebf",
+  "licence": "MIT",
+  "redistributable": true
+}
