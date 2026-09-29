@@ -102,7 +102,11 @@ def main() -> int:
         print(f"  billable API calls this run: {CALLS}")
     except Exception:
         pass
-    print(f"\n  {len(rows)} rows -> {out.relative_to(ROOT)}\n")
+    try:
+        shown = out.relative_to(ROOT)
+    except ValueError:
+        shown = out          # an --out outside the repo is legitimate, e.g. a scratch replay
+    print(f"\n  {len(rows)} rows -> {shown}\n")
     return 0
 
 
