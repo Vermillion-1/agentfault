@@ -1,0 +1,17 @@
+{
+  "id": "intervals-004",
+  "repo": "intervals",
+  "category": "off_by_one",
+  "file": "intervals/core.py",
+  "function": "find_gaps",
+  "line_hint": 91,
+  "anchor": "    return [Interval(merged[k].end, merged[k + 1].start) for k in range(len(merged) - 1)]",
+  "replacement": "    return [Interval(merged[k].end, merged[k + 1].start) for k in range(len(merged))]",
+  "description": "Pairwise loop runs one step too far and indexes past the end of the merged list.",
+  "expected_failing_tests": [
+    "tests/test_core.py::TestFindGaps::test_single_has_no_gap",
+    "tests/test_core.py::TestFindGaps::test_one_gap",
+    "tests/test_core.py::TestFindGaps::test_adjacent_has_no_gap",
+    "tests/test_core.py::TestFindGaps::test_two_gaps"
+  ]
+}

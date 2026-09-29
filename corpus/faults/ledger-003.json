@@ -1,0 +1,14 @@
+{
+  "id": "ledger-003",
+  "repo": "ledger",
+  "category": "logic_error",
+  "file": "ledger/book.py",
+  "function": "validate",
+  "line_hint": 42,
+  "anchor": "    if total != 0:",
+  "replacement": "    if total < 0:",
+  "description": "Only negative imbalance is reported, so a book that is over by N cents passes validation.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestValidate::test_unbalanced_detected"
+  ]
+}

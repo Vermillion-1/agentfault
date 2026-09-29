@@ -1,0 +1,15 @@
+{
+  "id": "intervals-002",
+  "repo": "intervals",
+  "category": "logic_error",
+  "file": "intervals/core.py",
+  "function": "total_length",
+  "line_hint": 85,
+  "anchor": "    return sum(iv.length for iv in merge(intervals))",
+  "replacement": "    return sum(iv.length for iv in intervals)",
+  "description": "Union measure drops the merge step, so overlapping regions are counted twice.",
+  "expected_failing_tests": [
+    "tests/test_core.py::TestTotalLength::test_overlap_not_double_counted",
+    "tests/test_core.py::TestTotalLength::test_nested_not_double_counted"
+  ]
+}

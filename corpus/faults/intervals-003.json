@@ -1,0 +1,14 @@
+{
+  "id": "intervals-003",
+  "repo": "intervals",
+  "category": "off_by_one",
+  "file": "intervals/core.py",
+  "function": "Interval.overlaps",
+  "line_hint": 30,
+  "anchor": "        return self.start < other.end and other.start < self.end",
+  "replacement": "        return self.start <= other.end and other.start <= self.end",
+  "description": "Half-open boundary treated as closed, so intervals that merely touch report as overlapping.",
+  "expected_failing_tests": [
+    "tests/test_core.py::TestInterval::test_adjacent_do_not_overlap"
+  ]
+}

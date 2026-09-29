@@ -1,0 +1,15 @@
+{
+  "id": "ledger-001",
+  "repo": "ledger",
+  "category": "missing_import",
+  "file": "ledger/book.py",
+  "function": "<module>",
+  "line_hint": 13,
+  "anchor": "from datetime import date, timedelta",
+  "replacement": "from datetime import date",
+  "description": "timedelta no longer imported; summarise() raises NameError when it computes the span.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestSummarise::test_shape",
+    "tests/test_book.py::TestSummarise::test_inclusive_span"
+  ]
+}

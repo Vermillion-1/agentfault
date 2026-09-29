@@ -1,0 +1,15 @@
+{
+  "id": "ledger-004",
+  "repo": "ledger",
+  "category": "wrong_api",
+  "file": "ledger/book.py",
+  "function": "balance",
+  "line_hint": 57,
+  "anchor": "        out[e.account] += e.cents",
+  "replacement": "        out[e.account] = e.cents",
+  "description": "Assignment instead of accumulation: the last entry for an account overwrites all earlier ones.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestBalance::test_nets_per_account",
+    "tests/test_book.py::TestBalance::test_accumulates"
+  ]
+}

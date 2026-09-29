@@ -1,0 +1,14 @@
+{
+  "id": "ledger-005",
+  "repo": "ledger",
+  "category": "logic_error",
+  "file": "ledger/book.py",
+  "function": "running_balance",
+  "line_hint": 64,
+  "anchor": "    rows = sorted((e for e in entries if e.account == account), key=lambda e: e.day)",
+  "replacement": "    rows = [e for e in entries if e.account == account]",
+  "description": "Date ordering dropped, so the cumulative series follows input order instead of time.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestRunningBalance::test_sorts_by_date"
+  ]
+}

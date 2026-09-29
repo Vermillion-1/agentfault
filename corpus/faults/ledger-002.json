@@ -1,0 +1,16 @@
+{
+  "id": "ledger-002",
+  "repo": "ledger",
+  "category": "off_by_one",
+  "file": "ledger/book.py",
+  "function": "largest_gap_days",
+  "line_hint": 78,
+  "anchor": "    return max((days[i + 1] - days[i]).days - 1 for i in range(len(days) - 1))",
+  "replacement": "    return max((days[i + 1] - days[i]).days for i in range(len(days) - 1))",
+  "description": "Gap counts the bounding days themselves, overstating every gap by one.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestLargestGap::test_consecutive_days_no_gap",
+    "tests/test_book.py::TestLargestGap::test_one_gap",
+    "tests/test_book.py::TestLargestGap::test_largest_of_several"
+  ]
+}

@@ -1,0 +1,19 @@
+
+  sweep: 12 faults x 11 arms x 4 levels = 528 cells
+
+    intervals-001    12 chunks  query chars L0/L3 = 12/2279
+    intervals-002    12 chunks  query chars L0/L3 = 12/1170
+    intervals-003    12 chunks  query chars L0/L3 = 12/1123
+    intervals-004    12 chunks  query chars L0/L3 = 12/4327
+    intervals-005    12 chunks  query chars L0/L3 = 12/2671
+    ledger-001       8 chunks  query chars L0/L3 = 12/1902
+    ledger-002       8 chunks  query chars L0/L3 = 12/1977
+    ledger-003       8 chunks  query chars L0/L3 = 12/674
+    ledger-004       8 chunks  query chars L0/L3 = 12/1523
+    ledger-005       8 chunks  query chars L0/L3 = 12/574
+    ledger-006       8 chunks  query chars L0/L3 = 12/944
+    ledger-007       8 chunks  query chars L0/L3 = 12/7035
+  billable API calls this run: {'cohere_embed': 24, 'cohere_rerank': 48, 'groq_chat': 0}
+
+  528 rows -> results/retrieval_raw.csv
+

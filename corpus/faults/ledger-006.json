@@ -1,0 +1,14 @@
+{
+  "id": "ledger-006",
+  "repo": "ledger",
+  "category": "off_by_one",
+  "file": "ledger/book.py",
+  "function": "summarise",
+  "line_hint": 85,
+  "anchor": "    span = (max(e.day for e in items) - min(e.day for e in items)) + timedelta(days=1)",
+  "replacement": "    span = (max(e.day for e in items) - min(e.day for e in items))",
+  "description": "Span becomes exclusive of the final day, reporting one day fewer than covered.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestSummarise::test_inclusive_span"
+  ]
+}
