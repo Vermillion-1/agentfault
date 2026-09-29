@@ -29,6 +29,14 @@ from tools.env import get  # noqa: E402
 CACHE = ROOT / "results" / ".cache"
 CALLS = {"cohere_embed": 0, "cohere_rerank": 0, "groq_chat": 0}
 
+# The exact request body and wall time of the most recent groq_chat, for provenance.
+# The trace layer must record what was ACTUALLY SENT, not a reconstruction -- the
+# whole point of harness-owned provenance is that it is not re-derived from anything
+# the agent could influence. `cached` is recorded because a replayed response has a
+# real hash but a meaningless duration, and conflating the two would quietly corrupt
+# any latency analysis. Single-threaded by design; do not read this across threads.
+LAST_CALL: dict = {}
+
 # Trial-key ceilings: 5/min embed, 10/min rerank. Exceeding them returns 429 and
 # wastes quota on a retry, so calls are paced rather than retried.
 _RATE = {"cohere_embed": 60.0 / 5, "cohere_rerank": 60.0 / 10, "groq_chat": 60.0 / 28}
@@ -160,6 +168,7 @@ def groq_chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
 
     def go():
         _tpm_wait()
+        LAST_CALL["cached"] = False
         p = subprocess.run(
             ["curl", "-s", "--max-time", "120",
              "-H", f"Authorization: Bearer {get('GROQ_API_KEY')}",
@@ -175,5 +184,11 @@ def groq_chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
             raise RuntimeError(f"groq: {str(out['error'])[:300]}")
         note_tokens(out.get("usage", {}).get("total_tokens", 0))
         return out
-    return _cached("groq_chat", ("groq", model, temperature, max_tokens, messages,
-                                 bool(tools)), go)
+    import time as _t
+    LAST_CALL.clear()
+    LAST_CALL.update({"request": body, "cached": True})
+    _t0 = _t.perf_counter()
+    out = _cached("groq_chat", ("groq", model, temperature, max_tokens, messages,
+                                bool(tools)), go)
+    LAST_CALL["duration_ms"] = (_t.perf_counter() - _t0) * 1000
+    return out

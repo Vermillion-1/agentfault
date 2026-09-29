@@ -26,13 +26,46 @@ from typing import Dict, List
 LEVELS = ["L0", "L1", "L2", "L3"]
 
 
+def scrub_paths(text: str, repo: Path) -> str:
+    """Replace machine-specific absolute paths with a stable placeholder.
+
+    Three separate problems, one fix:
+
+      reproducibility -- episodes run in a fresh temp directory, so the traceback
+                         embeds a different absolute path every time. That makes the
+                         prompt non-deterministic, which silently defeats response
+                         caching and means no run can be replayed exactly.
+      privacy         -- a published trace would otherwise carry the author's home
+                         directory and username in every traceback.
+      comparability   -- two runs of the same fault should differ only in what the
+                         agent did, not in where the harness happened to put files.
+
+    The agent loses nothing: paths inside the repo are still relative and still
+    navigable, which is all it needs to find and edit a file.
+    """
+    out = text.replace(str(repo.resolve()), "<repo>").replace(str(repo), "<repo>")
+    # macOS reports /private/var while tempfile hands out /var; normalise both, then
+    # sweep any residual temp path so a stray form cannot reintroduce nondeterminism.
+    out = re.sub(r"/private/var/folders/[^\s:,)\"']+", "<tmp>", out)
+    out = re.sub(r"/var/folders/[^\s:,)\"']+", "<tmp>", out)
+    out = re.sub(r"/tmp/[A-Za-z0-9_]{6,}", "<tmp>", out)
+    # CPython prints object identity as a heap address in tracebacks
+    # ("<test_core.TestMerge object at 0x10f8c6150>"). It is different on every run
+    # and carries no information the agent can use, so it is the last thing standing
+    # between two runs of the same fault and a byte-identical prompt.
+    out = re.sub(r"0x[0-9a-fA-F]{6,}", "0xADDR", out)
+    # Elapsed time varies run to run for the same reason.
+    out = re.sub(r"\bin \d+\.\d+s\b", "in <t>s", out)
+    return out
+
+
 def run_suite(repo: Path) -> str:
     """Full pytest output with long tracebacks. One run serves every level."""
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "--no-header", "-rf",
          "--tb=long", "-p", "no:cacheprovider"],
         cwd=repo, capture_output=True, text=True)
-    return proc.stdout
+    return scrub_paths(proc.stdout, repo)
 
 
 def failing_nodes(output: str) -> List[str]:

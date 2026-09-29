@@ -24,6 +24,7 @@ Everything else here is careful engineering.
 | External corpora, licence-gated fetch | **working** — QuixBugs vendored, BugsInPy fetch-only |
 | Retrieval sweep (11 arms x 4 observation levels) | **working** — 528 cells, results committed |
 | Minimal ReAct agent (native tool calling) | **working** — verified end to end on one fault |
+| Four-layer provenance (`agent/trace.py`) | **working** — example trace committed, offline test green |
 | Batch agent sweep with seeds | not started |
 | Chaos layer (v0.2) | not started |
 
@@ -35,7 +36,38 @@ python3 corpus/external/fetch.py status       # external corpora + licence postu
 python3 runner/sweep.py            # retrieval grid -> results/retrieval_raw.csv
 python3 runner/report.py           # regenerate results/REPORT.md from the CSV
 python3 tools/env.py               # confirm keys load (prints presence, never values)
+python3 -m pytest tests/ -q        # offline tests, no API key needed
 ```
+
+## Provenance
+
+Every episode writes four layers plus a sidecar, joined by `event_id`:
+
+| File | Layer | Trust |
+|---|---|---|
+| `run.json` | manifest: harness config, model, **injected ground truth**, outcome, cost | harness-owned |
+| `events.jsonl` | what HAPPENED — every model call and tool call | harness-owned |
+| `claims.jsonl` | what the agent SAYS happened | **untrusted** |
+| `annotations.jsonl` | labels, incl. `INJECTED_GROUND_TRUTH` | free, by construction |
+| `reasoning.jsonl` | raw chain-of-thought | **sidecar, withholdable** |
+
+The value is in the *disagreement between layers 1 and 2*. Overclaiming, reasoning-action
+mismatch and false success are all differences between what the harness observed and what the
+agent reported — none is visible from either stream alone. No existing standard has a field for
+this distinction, so `provenance_origin` is ours.
+
+Three properties are enforced by test rather than convention (`tests/test_trace.py`):
+
+- **Reasoning text appears only in the sidecar.** Provider terms on redistributing
+  chain-of-thought differ, so withholding it must be "don't ship one file", not a rewrite.
+- **Payloads are stored as `preview` + `sha256`.** Integrity and tamper-evidence without
+  republishing whole prompts or third-party source. A hash of the real response is not
+  forgeable by the agent.
+- **Prompts are byte-identical across runs.** Tracebacks otherwise embed the temp path,
+  heap addresses and elapsed time — which breaks caching, prevents replay, and would leak
+  the author's home directory into a published trace.
+
+A worked example is committed at `results/traces/example-intervals-001-L3/`.
 
 Keys live in a gitignored `.env`; `tools/env.py` reports only presence and length.
 Hosted responses are disk-cached in `results/.cache/`, so re-running the sweep costs

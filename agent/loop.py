@@ -32,6 +32,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -39,9 +40,10 @@ from typing import Dict, List, Optional
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from agent.trace import TraceWriter        # noqa: E402
 from retrieval import query as Q          # noqa: E402
 from retrieval.chunk import Chunk         # noqa: E402
-from retrieval.providers import groq_chat  # noqa: E402
+from retrieval.providers import LAST_CALL, groq_chat  # noqa: E402
 
 MAX_STEPS = 12
 MAX_FILE_CHARS = 6000
@@ -101,12 +103,50 @@ class Episode:
     def __init__(self, repo: Path, fault: dict, level: str,
                  seed_chunks: Optional[List[Chunk]] = None,
                  seeded_label: str = "none", seed: int = 0,
-                 model: str = "openai/gpt-oss-20b"):
+                 model: str = "openai/gpt-oss-20b",
+                 trace_dir: Optional[Path] = None):
         self.repo, self.fault, self.level = repo, fault, level
         self.seed_chunks, self.seeded_label = seed_chunks, seeded_label
         self.seed, self.model = seed, model
         self.res = Result(fault["id"], level, seeded_label, seed)
         self.edited_lines: Dict[str, List[int]] = {}
+        self.trace = TraceWriter(
+            trace_dir, fault=fault, level=level, model=model, seed=seed,
+            scaffold={"max_steps": MAX_STEPS, "max_file_chars": MAX_FILE_CHARS,
+                      "tools": [t["function"]["name"] for t in TOOL_SCHEMAS],
+                      "system_prompt_sha256": __import__("hashlib").sha256(
+                          SYSTEM.encode()).hexdigest(),
+                      "seeded_context": seeded_label},
+            repo_root=repo) if trace_dir else None
+
+    # ------------------------------------------------- tool dispatch + tracing
+    def _describe(self, name: str, args: dict, result: str):
+        """Map a tool call onto navigation semantics: what was the agent trying to
+        do, which paths did it touch, how much context did it consume. This is the
+        record that answers 'how did it search the repo', which is the thing almost
+        nobody logs and the thing the retrieval literature says actually matters."""
+        lines = result.count("\n") + 1 if result else 0
+        if name == "read":
+            return "read", [args.get("path", "")], lines
+        if name == "search":
+            paths = sorted({ln.split(":", 1)[0] for ln in result.splitlines()
+                            if ":" in ln and not ln.startswith("no matches")})
+            return "search", paths, lines
+        if name == "edit":
+            return "edit", [args.get("path", "")], 1
+        if name == "test":
+            return "test", [], lines
+        return "list", [], lines
+
+    def _run_tool(self, name: str, args: dict, fn) -> str:
+        t0 = time.perf_counter()
+        obs = str(fn(args))
+        ms = (time.perf_counter() - t0) * 1000
+        if self.trace:
+            intent, paths, lines = self._describe(name, args, obs)
+            self.trace.tool_event(name=name, args=args, result=obs, duration_ms=ms,
+                                  intent=intent, paths=paths, lines=lines)
+        return obs
 
     # ---------------------------------------------------------------- tools
     def _sources(self) -> List[Path]:
@@ -187,6 +227,10 @@ class Episode:
             except Exception as e:
                 self.res.error = str(e)[:160]
                 break
+            if self.trace:
+                self.trace.llm_event(
+                    request_body=LAST_CALL.get("request", {}), response=out,
+                    duration_ms=LAST_CALL.get("duration_ms", 0.0), model=self.model)
             u = out.get("usage", {})
             self.res.prompt_tokens += u.get("prompt_tokens", 0)
             self.res.completion_tokens += u.get("completion_tokens", 0)
@@ -207,12 +251,20 @@ class Episode:
                 if action.get("tool") == "done":
                     claimed_done = True
                     break
-                fn = tools.get(action.get("tool"))
-                msgs.append({"role": "user",
-                             "content": str(fn(action) if fn else "unknown tool")[:4000]})
+                nm = action.get("tool")
+                fn = tools.get(nm)
+                obs = self._run_tool(nm, action, fn) if fn else "unknown tool"
+                msgs.append({"role": "user", "content": obs[:4000]})
                 continue
 
             msgs.append({"role": "assistant", "content": content, "tool_calls": calls})
+            if self.trace:
+                self.trace.claim(
+                    event_id=f"{self.trace.run_id[:8]}-{self.trace.step:04d}",
+                    claimed_actions=[c["function"]["name"] for c in calls],
+                    claimed_status="done" if any(
+                        c["function"]["name"] == "done" for c in calls) else None,
+                    content=content)
             stop = False
             for call in calls:
                 name = call["function"]["name"]
@@ -225,7 +277,7 @@ class Episode:
                     obs = "finished"
                 else:
                     fn = tools.get(name)
-                    obs = fn(args) if fn else f"unknown tool {name!r}"
+                    obs = self._run_tool(name, args, fn) if fn else f"unknown tool {name!r}"
                 msgs.append({"role": "tool", "tool_call_id": call.get("id", name),
                              "name": name, "content": str(obs)[:4000]})
             if stop:
@@ -240,6 +292,14 @@ class Episode:
         self.res.localised_fn = int(any(
             _in_gold_fn(self.repo, gold_file, self.fault["function"], ln)
             for ln in self.edited_lines.get(gold_file, [])))
+
+        if self.trace:
+            self.trace.finish(
+                resolved=bool(passed), agent_claimed_success=claimed_done,
+                localised_file=bool(self.res.localised),
+                localised_fn=bool(self.res.localised_fn),
+                edits=self.res.edits, files_edited=self.res.files_edited,
+                error=self.res.error)
         return self.res
 
 

@@ -1,0 +1,83 @@
+{
+  "schema_version": "agentfault-trace-0.1",
+  "run_id": "4bff6f90ffe84bc2bdf1f8b7210aa98b",
+  "timestamp_utc": "2026-09-29T10:46:39Z",
+  "harness": {
+    "name": "agentfault",
+    "git_sha": "703f7ef9cffe4fafae005f3f82c874a41c1701af",
+    "python": "3.11.7",
+    "platform": "macOS-26.5-x86_64-i386-64bit"
+  },
+  "scaffold": {
+    "max_steps": 12,
+    "max_file_chars": 6000,
+    "tools": [
+      "list",
+      "read",
+      "search",
+      "edit",
+      "test",
+      "done"
+    ],
+    "system_prompt_sha256": "b368bae55399a5e41a2b8120221b36a468d8b526a1a4439b7b691251cdd596d8",
+    "seeded_context": "none"
+  },
+  "model": {
+    "provider": "groq",
+    "model_id": "openai/gpt-oss-20b",
+    "seed": 0
+  },
+  "task": {
+    "corpus": "agentfault",
+    "fault_id": "intervals-001",
+    "repo": "intervals",
+    "observation_level": "L3"
+  },
+  "injection": {
+    "injected": true,
+    "fault_id": "intervals-001",
+    "category": "off_by_one",
+    "file": "intervals/core.py",
+    "function": "merge",
+    "line_hint": 45,
+    "expected_failing_tests": [
+      "tests/test_core.py::TestMerge::test_adjacent_coalesce",
+      "tests/test_core.py::TestMerge::test_unsorted_input",
+      "tests/test_core.py::TestFindGaps::test_adjacent_has_no_gap"
+    ],
+    "generator": "hand-authored",
+    "operator": null,
+    "odc_type": null,
+    "odc_qualifier": null
+  },
+  "repo_base_sha": null,
+  "outcome": {
+    "resolved": true,
+    "agent_claimed_success": true,
+    "silent_failure": false,
+    "localised_file": true,
+    "localised_function": true,
+    "edits": 1,
+    "files_edited": [
+      "intervals/core.py"
+    ],
+    "error": ""
+  },
+  "cost": {
+    "input_tokens": 500,
+    "output_tokens": 100,
+    "reasoning_tokens": 35,
+    "wall_clock_ms": 1766.3,
+    "steps": 9
+  },
+  "navigation_summary": {
+    "paths_seen": [
+      "intervals/core.py"
+    ],
+    "lines_consumed": 96,
+    "searches": 1,
+    "reads": 1,
+    "edits": 1
+  },
+  "has_reasoning_sidecar": true
+}
