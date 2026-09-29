@@ -135,6 +135,15 @@ def cmd_get(a) -> int:
 
     sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=dest,
                          capture_output=True, text=True).stdout.strip()
+
+    if s["redistributable"]:
+        # Strip the nested .git BEFORE anything can stage it. A clone that still has
+        # its own .git is committed by the outer repo as a gitlink -- a bare commit
+        # pointer -- so the files never actually land, and a fresh clone of this repo
+        # gets an EMPTY directory while `git status` looks clean. "Vendored" would be
+        # a false claim. Provenance is not lost: the pinned commit is recorded in the
+        # .pinned.json written just below.
+        shutil.rmtree(dest / ".git", ignore_errors=True)
     (dest.parent / f"{a.name}.pinned.json").write_text(json.dumps({
         "name": a.name, "url": s["url"], "ref": s["ref"], "commit": sha,
         "licence": s["licence"], "redistributable": s["redistributable"],
@@ -142,6 +151,8 @@ def cmd_get(a) -> int:
     print(f"  {G}ok{OFF} pinned at {sha[:12]}, {du_gb(dest):.2f} GB")
     if not s["redistributable"]:
         print(f"  {Y}fetch-only{OFF} — gitignored, never commit its contents")
+    else:
+        print(f"  {G}vendored{OFF} — nested .git stripped so the files are really committed")
     return 0
 
 
