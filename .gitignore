@@ -10,7 +10,7 @@ results/*.tmp
 # External corpora: fetched, never committed (see corpus/LICENSES.md)
 corpus/external/bugsinpy/
 
-# Run artefacts live in the private twin (agent-fault-private, see STATE.md), which
+# Run artefacts live in the private agent-fault-research repo (see STATE.md), which
 # tracks them all. Here they are ignored so a public checkout stays clean. Cache
 # entries already committed for the retrieval replay stay tracked; a new one that
 # belongs in the public replay needs `git add -f`.
