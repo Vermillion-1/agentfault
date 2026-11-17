@@ -357,7 +357,12 @@ class Episode:
                 action = _extract_json(content)
                 msgs.append({"role": "assistant", "content": content or "(empty)"})
                 if action is None:
-                    msgs.append({"role": "user", "content": "Call one of the provided tools."})
+                    # A chat model ends by answering in prose. Naming the two exits
+                    # here matters: told only "call a tool", gpt-oss re-ran `test`
+                    # after every pass and burned all 12 steps without finishing.
+                    msgs.append({"role": "user", "content":
+                                 "Call one of the provided tools. If you are finished, "
+                                 "call `done`; if you cannot find the fault, call `give_up`."})
                     continue
                 if action.get("tool") == "done":
                     claimed_done = True
