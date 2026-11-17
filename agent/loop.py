@@ -376,7 +376,15 @@ class Episode:
                 msgs.append({"role": "user", "content": obs[:4000]})
                 continue
 
-            msgs.append({"role": "assistant", "content": content, "tool_calls": calls})
+            # gpt-oss calls tools from inside its chain of thought, so OpenAI's harmony
+            # guidance is to send that reasoning back on every later call until a final
+            # answer. Dropping it left the agent re-deriving its plan each step, and
+            # hosts filled the gap differently. Each field goes back under the name it
+            # arrived with; OpenRouter's reasoning_details is passed through unchanged.
+            carry = {k: msg[k] for k in ("reasoning", "reasoning_content",
+                                         "reasoning_details") if msg.get(k)}
+            msgs.append({"role": "assistant", "content": content, "tool_calls": calls,
+                         **carry})
             names = [c["function"]["name"] for c in calls]
             if self.trace:
                 self.trace.claim(

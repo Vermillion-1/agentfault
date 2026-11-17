@@ -51,6 +51,9 @@ def run_episode(tmp: Path):
     calls = {"n": 0}
 
     def fake_groq(messages, **kw):
+        if calls["n"]:
+            assert messages[-2]["reasoning"] == SECRET_COT, \
+                "the model's reasoning must go back to it on the next call"
         i = min(calls["n"], len(script) - 1)
         calls["n"] += 1
         loop.LAST_CALL.clear()
