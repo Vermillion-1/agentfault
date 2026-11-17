@@ -196,7 +196,7 @@ class ProviderError(RuntimeError):
     """
 
     def __init__(self, kind: str, status: int, detail: str):
-        super().__init__(f"{kind} (HTTP {status}): {detail[:200]}")
+        super().__init__(f"{kind} (HTTP {status}): {detail[:400]}")
         self.kind, self.status = kind, status
 
 
@@ -224,12 +224,20 @@ def chat_endpoint() -> tuple:
     The Groq key is only ever sent to Groq. A custom URL gets a key only when
     AGENTFAULT_CHAT_KEY_ENV names one, so pointing the sweep at another server
     cannot leak the Groq key to it.
+
+    A router such as OpenRouter serves one model from many hosts and picks one per
+    call, so a single cell could mix serving stacks. AGENTFAULT_CHAT_UPSTREAM pins
+    one host (see chat()), and the label names it, so the CSV's provider column and
+    the cache key both say which host answered.
     """
     url = os.environ.get("AGENTFAULT_CHAT_URL") or GROQ_URL
     if url == GROQ_URL:
         return url, get("GROQ_API_KEY"), "groq"
     key_env = os.environ.get("AGENTFAULT_CHAT_KEY_ENV")
-    return url, (get(key_env) if key_env else None), urlparse(url).netloc or "custom"
+    label = urlparse(url).netloc or "custom"
+    if os.environ.get("AGENTFAULT_CHAT_UPSTREAM"):
+        label += "/" + os.environ["AGENTFAULT_CHAT_UPSTREAM"]
+    return url, (get(key_env) if key_env else None), label
 
 
 def chat_cache_payload(provider: str, model: str, temperature: float, max_tokens: int,
@@ -292,6 +300,13 @@ def chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
         body["tool_choice"] = "auto"
     if seed is not None:
         body["seed"] = seed
+    upstream = os.environ.get("AGENTFAULT_CHAT_UPSTREAM")
+    if upstream and provider != "groq":
+        # OpenRouter's routing field. No fallbacks: a failed call is an error row,
+        # never a silent answer from another host. require_parameters: a host that
+        # would drop `seed` or `tools` is refused rather than used.
+        body["provider"] = {"order": [upstream], "allow_fallbacks": False,
+                            "require_parameters": True}
 
     def go():
         LAST_CALL["cached"] = False

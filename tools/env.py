@@ -22,6 +22,9 @@ ALIASES = {
     "GROQ_API_KEY":   ("groq_key", "groq_api_key", "GROQ_KEY", "GROQ_API_KEY"),
     "COHERE_API_KEY": ("cohere_trail_key", "cohere_trial_key", "cohere_key",
                        "cohere_api_key", "COHERE_KEY", "COHERE_API_KEY"),
+    "NVIDIA_API_KEY": ("nvidia_key", "nvidia_api_key", "NVIDIA_KEY", "NVIDIA_API_KEY"),
+    "OPENROUTER_API_KEY": ("openrouter_key", "openrouter_api_key", "OPENROUTER_KEY",
+                           "OPENROUTER_API_KEY"),
 }
 
 _LINE = re.compile(r"""^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$""")

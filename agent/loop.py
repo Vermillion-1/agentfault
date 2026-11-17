@@ -287,6 +287,13 @@ class Episode:
         return f"edited {rel} at line {line_no}"
 
     def t_test(self, _) -> str:
+        # Q.build composes a retrieval query, which only exists for a failing suite:
+        # it has no passing case and says "tests failed" on a green run too. Before
+        # this check the agent was told its correct fix still failed, never called
+        # `done`, and L0 carried no information at all. The level sets how much a
+        # failure says; a pass is a pass at every level.
+        if _suite_green(self.repo)[0]:
+            return "all tests passed"
         return Q.build(Q.run_suite(self.repo), self.level)
 
     # --------------------------------------------------------------- driving
@@ -321,7 +328,7 @@ class Episode:
             except Exception as e:
                 # The kind is kept apart from the message so the sweep runner can
                 # tell "stop now" (auth) from "this one cell failed".
-                self.res.error = str(e)[:160]
+                self.res.error = str(e)[:420]
                 self.res.error_kind = e.kind if isinstance(e, ProviderError) else "unknown"
                 break
             # A replayed response has a real hash but a meaningless duration, so

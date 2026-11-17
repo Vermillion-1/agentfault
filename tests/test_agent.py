@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -134,6 +135,17 @@ def test_real_fix_is_clean():
     assert res.llm_calls == 4 and res.llm_calls_cached == 0 and res.llm_ms_uncached > 0
 
 
+def test_the_test_tool_reports_a_pass_at_every_level():
+    fault = _fault()
+    with tempfile.TemporaryDirectory() as td:
+        repo = materialise(fault, Path(td) / fault["repo"])
+        for lv in ("L0", "L1", "L2", "L3"):
+            assert loop.Episode(repo, fault, level=lv, seed=0).t_test(None) != "all tests passed"
+        shutil.copy(REPOS / fault["repo"] / fault["file"], repo / fault["file"])
+        for lv in ("L0", "L1", "L2", "L3"):
+            assert loop.Episode(repo, fault, level=lv, seed=0).t_test(None) == "all tests passed"
+
+
 def test_give_up_is_not_a_silent_failure():
     with tempfile.TemporaryDirectory() as td:
         res, _, _ = _episode(Path(td), scripted_model(_fault(), "give_up"))
@@ -170,6 +182,25 @@ def test_groq_key_is_not_sent_to_a_custom_endpoint(monkeypatch):
 
     monkeypatch.delenv("AGENTFAULT_CHAT_URL")
     assert providers.chat_endpoint() == (providers.GROQ_URL, "groq-secret", "groq")
+
+
+def test_a_pinned_upstream_is_sent_and_recorded(monkeypatch):
+    monkeypatch.setenv("AGENTFAULT_CHAT_URL", "https://openrouter.ai/api/v1/chat/completions")
+    monkeypatch.setenv("AGENTFAULT_CHAT_UPSTREAM", "groq")
+    monkeypatch.delenv("AGENTFAULT_CHAT_KEY_ENV", raising=False)
+    monkeypatch.setattr(providers, "_RATE", {})
+    sent = {}
+
+    def fake_curl(url, key, body):
+        sent.update(body)
+        return 200, json.dumps({"id": "r", "usage": {"total_tokens": 1}})
+
+    monkeypatch.setattr(providers, "_curl_chat", fake_curl)
+    providers.chat([{"role": "user", "content": "x"}], seed=0, cache=False)
+    assert sent["provider"] == {"order": ["groq"], "allow_fallbacks": False,
+                                "require_parameters": True}
+    assert providers.chat_endpoint()[2] == "openrouter.ai/groq", \
+        "the label, and so the cache key and CSV, must name the host"
 
 
 def test_provider_error_is_recorded_with_its_kind():
