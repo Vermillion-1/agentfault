@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT))
 import agent.loop as loop                               # noqa: E402
 from agent.fake import BEHAVIOURS, failing_model, scripted_model  # noqa: E402
 from retrieval import query as Q                        # noqa: E402
-from retrieval.providers import chat_endpoint           # noqa: E402
+from retrieval.providers import chat_endpoint, configure  # noqa: E402
 from tools.corpus import FAULTS, load_faults, materialise  # noqa: E402
 
 RESULTS = ROOT / "results"
@@ -100,6 +100,9 @@ def main(argv=None) -> int:
     ap.add_argument("--traces", help="trace root (default results/traces/phase-d)")
     ap.add_argument("--max-errors", type=int, default=3,
                     help="stop after this many provider errors in a row")
+    ap.add_argument("--provider",
+                    help="groq, openrouter:<host> (e.g. openrouter:akashml/fp4), or a URL; "
+                         "default: whatever AGENTFAULT_CHAT_* say, else groq")
     ap.add_argument("--fake", action="store_true",
                     help="scripted model, no API calls; behaviour cycles with the seed")
     ap.add_argument("--fake-fail", action="store_true",
@@ -112,6 +115,8 @@ def main(argv=None) -> int:
         "fake_agent_raw.tmp" if a.fake else "agent_raw.csv")
     traces = Path(a.traces) if a.traces else RESULTS / (
         "fake_traces.tmp" if a.fake else "traces/phase-d")
+    if a.provider and not a.fake:
+        configure(a.provider)
     provider = "fake" if a.fake else chat_endpoint()[2]
 
     faults = load_faults()
@@ -130,6 +135,12 @@ def main(argv=None) -> int:
     cells = [(f, lv, m, s, rep) for f in faults for lv in a.levels
              for m in a.models for s in a.seeds for rep in range(a.repeats)]
     rows = read_rows(out)
+    # A cell id has no provider in it, so resuming under another provider would
+    # skip cells another host ran and mix two serving stacks in one table.
+    others = {r["provider"] for r in rows.values()} - {provider}
+    if others:
+        sys.exit(f"{out.name} holds rows from {sorted(others)}, not {provider}. "
+                 "Use the same --provider, or a different -o.")
     done = {c for c, r in rows.items() if not r.get("error")}
     todo = [c for c in cells if cell_id(c[0]["id"], *c[1:]) not in done]
     print(f"\n  agent sweep: {len(faults)} faults x {len(a.levels)} levels x "

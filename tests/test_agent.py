@@ -220,6 +220,28 @@ def _rows(tmp: Path):
     return list(csv.DictReader((tmp / "raw.csv").open()))
 
 
+def test_a_provider_is_chosen_by_name_and_never_mixed_in_one_csv(monkeypatch):
+    for k in ("AGENTFAULT_CHAT_URL", "AGENTFAULT_CHAT_KEY_ENV", "AGENTFAULT_CHAT_UPSTREAM"):
+        monkeypatch.delenv(k, raising=False)
+    providers.configure("openrouter:akashml/fp4")
+    assert providers.chat_endpoint()[2] == "openrouter.ai/akashml/fp4"
+    providers.configure("groq")
+    assert providers.chat_endpoint()[2] == "groq", "a later spec clears the earlier one"
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        assert _sweep(tmp) == 0
+        rows = _rows(tmp)
+        for r in rows:
+            r["provider"] = "openrouter.ai/akashml/fp4"
+        sweep.write_rows(tmp / "raw.csv", {r["cell"]: r for r in rows})
+        try:
+            _sweep(tmp)
+            raise AssertionError("resuming under another provider must stop")
+        except SystemExit as e:
+            assert "akashml" in str(e)
+
+
 def test_sweep_resumes_and_seeds_differ():
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)

@@ -212,6 +212,32 @@ def classify_status(status: int) -> str:
     return "client"
 
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def configure(spec: str) -> None:
+    """Point chat() at one provider for this process, by name instead of three
+    environment variables:
+
+        groq                    Groq directly (free tier: 8k tokens/min, 413 above it)
+        openrouter:<host>       OpenRouter pinned to one host, e.g. openrouter:akashml/fp4
+        http://...              any OpenAI-compatible server, e.g. a vLLM over a tunnel
+
+    Clears what an earlier configuration set, so two specs can never mix."""
+    for k in ("AGENTFAULT_CHAT_URL", "AGENTFAULT_CHAT_KEY_ENV", "AGENTFAULT_CHAT_UPSTREAM"):
+        os.environ.pop(k, None)
+    if spec == "groq":
+        return
+    if spec.startswith("openrouter:"):
+        os.environ.update(AGENTFAULT_CHAT_URL=OPENROUTER_URL,
+                          AGENTFAULT_CHAT_KEY_ENV="OPENROUTER_API_KEY",
+                          AGENTFAULT_CHAT_UPSTREAM=spec.split(":", 1)[1])
+    elif spec.startswith(("http://", "https://")):
+        os.environ["AGENTFAULT_CHAT_URL"] = spec
+    else:
+        raise ValueError(f"unknown provider {spec!r}: use groq, openrouter:<host>, or a URL")
+
+
 def chat_endpoint() -> tuple:
     """(url, api key or None, provider label) for the chat model.
 
