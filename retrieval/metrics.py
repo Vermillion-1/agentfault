@@ -60,3 +60,21 @@ def bootstrap_ci(values: List[float], iters: int = 10000, seed: int = 0, alpha: 
     lo = means[int((alpha / 2) * iters)]
     hi = means[min(iters - 1, int((1 - alpha / 2) * iters))]
     return (lo, hi)
+
+
+def paired_bootstrap_ci(a: List[float], b: List[float], iters: int = 10000,
+                        seed: int = 0, alpha: float = 0.05):
+    """95% CI for mean(a - b), where a[i] and b[i] come from the SAME item.
+
+    Use this, not two separate intervals, whenever two conditions are run on the
+    same faults. An easy fault is easy under both conditions and a hard one is hard
+    under both, so most of the spread in each column is shared and cancels in the
+    difference. Two unpaired intervals keep that shared spread and can overlap even
+    when one condition wins on nearly every fault.
+
+    The interval excludes 0 exactly when the difference is distinguishable from
+    none at this sample size.
+    """
+    if len(a) != len(b):
+        raise ValueError("paired samples must have the same length")
+    return bootstrap_ci([x - y for x, y in zip(a, b)], iters=iters, seed=seed, alpha=alpha)

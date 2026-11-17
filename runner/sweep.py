@@ -40,7 +40,7 @@ from retrieval import query as Q                    # noqa: E402
 from retrieval.arms import ARMS                     # noqa: E402
 from retrieval.chunk import chunk_repo              # noqa: E402
 from retrieval.metrics import score                 # noqa: E402
-from tools.corpus import load_faults, materialise   # noqa: E402
+from tools.corpus import FAULTS, load_faults, materialise   # noqa: E402
 
 RESULTS = ROOT / "results"
 
@@ -50,9 +50,17 @@ def main() -> int:
     ap.add_argument("--arms", nargs="*", default=list(ARMS))
     ap.add_argument("--levels", nargs="*", default=Q.LEVELS)
     ap.add_argument("-o", "--out", default=str(RESULTS / "retrieval_raw.csv"))
+    ap.add_argument("--generated", action="store_true",
+                    help="also sweep the 211 mechanically generated faults")
     a = ap.parse_args()
 
-    faults = load_faults()
+    # Default to the 12 hand-written faults, the set results/ was produced from.
+    # The generated faults arrived the day after that sweep, and load_faults()
+    # picks them up too, so without this a "replay" silently became a new
+    # 223-fault sweep: on 2026-11-17 one made ~270 paced live Cohere calls
+    # before the network dropped. Sweeping them is a decision, not a default.
+    faults = [f for f in load_faults()
+              if a.generated or f["_path"].parent == FAULTS]
     rows = []
     print(f"\n  sweep: {len(faults)} faults x {len(a.arms)} arms x {len(a.levels)} levels "
           f"= {len(faults) * len(a.arms) * len(a.levels)} cells\n")

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Regenerate results/REPORT.md from results/retrieval_raw.csv.
+"""Regenerate results/REPORT.md from results/retrieval_raw.csv, and
+results/AGENT_REPORT.md from results/agent_raw.csv once the agent sweep has run.
 
 The report is derived, never hand-written, so it cannot drift from the data.
 Arm comparisons are reported WITHIN an observation level: pooling across levels
@@ -16,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from retrieval.metrics import bootstrap_ci  # noqa: E402
+from runner.agent_report import AGENT_RAW, agent_report  # noqa: E402
 
 RAW = ROOT / "results" / "retrieval_raw.csv"
 OUT = ROOT / "results" / "REPORT.md"
@@ -24,7 +26,7 @@ OUT = ROOT / "results" / "REPORT.md"
 def mean(v): return sum(v) / len(v) if v else 0.0
 
 
-def main() -> int:
+def retrieval_report() -> None:
     rows = list(csv.DictReader(RAW.open()))
     arms = sorted({r["arm"] for r in rows})
     levels = sorted({r["level"] for r in rows})
@@ -109,6 +111,12 @@ def main() -> int:
 
     OUT.write_text("\n".join(L) + "\n")
     print(f"wrote {OUT.relative_to(ROOT)}")
+
+
+def main() -> int:
+    retrieval_report()
+    if AGENT_RAW.exists():
+        agent_report()
     return 0
 
 

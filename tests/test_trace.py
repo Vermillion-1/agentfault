@@ -59,13 +59,13 @@ def run_episode(tmp: Path):
                                "duration_ms": 12.3, "cached": False})
         return script[i]
 
-    real = loop.groq_chat
-    loop.groq_chat = fake_groq
+    real = loop.chat
+    loop.chat = fake_groq
     try:
         out = tmp / "trace"
         res = loop.Episode(repo, fault, level="L3", seed=0, trace_dir=out).run()
     finally:
-        loop.groq_chat = real
+        loop.chat = real
     return res, out
 
 
