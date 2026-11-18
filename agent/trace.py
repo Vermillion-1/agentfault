@@ -222,7 +222,7 @@ class TraceWriter:
                agent_gave_up: bool = False, saw_gold_function: bool = False,
                error_kind: str = "", first_fixed_step: int = 0,
                policy_hits: int = 0, test_probes: int = 0, stop_reason: str = "",
-               failing_tests: Optional[List[str]] = None) -> Path:
+               failing_tests: Optional[List[str]] = None, patch: str = "") -> Path:
         if visible_green is None:
             visible_green = resolved
         self.manifest["outcome"] = {
@@ -269,6 +269,7 @@ class TraceWriter:
 
         for fh in (self._events, self._claims, self._reasoning, self._annotations):
             fh.close()
+        (self.dir / "patch.diff").write_text(patch)
         p = self.dir / "run.json"
         p.write_text(json.dumps(self.manifest, indent=2, default=str) + "\n")
         return p

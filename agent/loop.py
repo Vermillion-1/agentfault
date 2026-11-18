@@ -343,7 +343,7 @@ class Episode:
                 agent_gave_up=gave_up, saw_gold_function=bool(r.saw_gold_fn),
                 error_kind=r.error_kind, first_fixed_step=r.first_fixed_step,
                 policy_hits=r.policy_hits, test_probes=r.test_probes,
-                stop_reason=stop, failing_tests=final.failing())
+                stop_reason=stop, failing_tests=final.failing(), patch=self.ws.diff())
         return r
 
 

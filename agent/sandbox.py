@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import difflib
 import hashlib
 import json
 import re
@@ -214,6 +215,18 @@ class Workspace:
             except subprocess.TimeoutExpired:
                 return "", True
             return Q.scrub_paths(p.stdout, work), False
+
+    def diff(self) -> str:
+        """The agent's change to the source, as a unified diff against the start copy."""
+        out = []
+        for rel in self.files:
+            if not rel.endswith(".py"):
+                continue
+            was, now = (self.start / rel).read_text(), (self.root / rel).read_text()
+            if was != now:
+                out += difflib.unified_diff(was.splitlines(keepends=True),
+                                            now.splitlines(keepends=True), f"a/{rel}", f"b/{rel}")
+        return "".join(out)
 
     def manifest(self) -> dict:
         return {"backend": self.backend, "image": None, "image_id": None,

@@ -160,6 +160,7 @@ def classify_status(status: int) -> str:
 
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 
 def configure(spec: str) -> None:
@@ -172,10 +173,12 @@ def configure(spec: str) -> None:
         os.environ.update(AGENTFAULT_CHAT_URL=OPENROUTER_URL,
                           AGENTFAULT_CHAT_KEY_ENV="OPENROUTER_API_KEY",
                           AGENTFAULT_CHAT_UPSTREAM=spec.split(":", 1)[1])
+    elif spec == "nvidia":
+        os.environ.update(AGENTFAULT_CHAT_URL=NVIDIA_URL, AGENTFAULT_CHAT_KEY_ENV="NVIDIA_API_KEY")
     elif spec.startswith(("http://", "https://")):
         os.environ["AGENTFAULT_CHAT_URL"] = spec
     else:
-        raise ValueError(f"unknown provider {spec!r}: use groq, openrouter:<host>, or a URL")
+        raise ValueError(f"unknown provider {spec!r}: use groq, nvidia, openrouter:<host>, or a URL")
 
 
 def chat_endpoint() -> tuple:
@@ -203,7 +206,8 @@ def chat_cache_payload(provider: str, model: str, temperature: float, max_tokens
 
 def _curl_chat(url: str, key: "str | None", body: dict) -> tuple:
     """One HTTP attempt. Returns (status, body text); status 0 means curl failed."""
-    cmd = ["curl", "-s", "--max-time", "120", "-w", "\n%{http_code}",
+    cmd = ["curl", "-s", "--max-time", os.environ.get("AGENTFAULT_CHAT_TIMEOUT", "120"),
+           "-w", "\n%{http_code}",
            "-H", "Content-Type: application/json",
            "-H", "User-Agent: curl/8.4.0"]
     if key:
