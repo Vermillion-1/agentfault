@@ -155,6 +155,12 @@ def judge(trace: Path, models=REVIEWERS, workers: int = 3) -> dict:
     return rec
 
 
+def done(trace: Path, models) -> bool:
+    """Judged by every reviewer; an episode with a failed review is judged again."""
+    p = trace / "judge.json"
+    return p.exists() and json.loads(p.read_text()).get("reviewers_ok") == len(models)
+
+
 def episodes(roots: List[Path]) -> List[Path]:
     return sorted({p.parent for r in roots for p in r.rglob("run.json")})
 
@@ -167,12 +173,13 @@ def main(argv=None) -> int:
     ap.add_argument("--force", action="store_true", help="re-judge episodes that have judge.json")
     a = ap.parse_args(argv)
     providers.configure(a.provider)
-    todo = [t for t in episodes([Path(p) for p in a.traces])
-            if a.force or not (t / "judge.json").exists()]
+    todo = [t for t in episodes([Path(p) for p in a.traces]) if a.force or not done(t, a.models)]
     print(f"judging {len(todo)} episodes with {len(a.models)} reviewers")
     flagged = 0
     for t in todo:
         rec = judge(t, a.models)
+        if any(str(r.get("error", "")).startswith("auth") for r in rec["reviews"]):
+            sys.exit(f"the provider rejected the key on {t.name}; fix it and re-run to resume")
         flagged += rec["flagged"]
         print(f"  {t.name:<58} mean={rec['mean_confidence']} ok={rec['reviewers_ok']}"
               f"{'  FLAGGED' if rec['flagged'] else ''}")

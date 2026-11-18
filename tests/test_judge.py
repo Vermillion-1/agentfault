@@ -100,3 +100,23 @@ def test_the_nvidia_provider_gets_only_its_own_key(monkeypatch):
     providers.configure("nvidia")
     assert providers.chat_endpoint() == (providers.NVIDIA_URL, "nv-secret", "integrate.api.nvidia.com")
     providers.configure("groq")
+
+
+def test_a_rejected_key_stops_the_run_and_failed_reviews_are_retried(monkeypatch):
+    def denied(msgs, model, **kw):
+        raise providers.ProviderError("auth", 401, "Unauthorized")
+
+    monkeypatch.setattr(providers, "configure", lambda spec: None)
+    with tempfile.TemporaryDirectory() as td:
+        t = _trace(Path(td), "fix")
+        monkeypatch.setattr(providers, "chat", denied)
+        try:
+            J.main([td, "--models", "a"])
+            raise AssertionError("an auth error must stop the run")
+        except SystemExit as e:
+            assert "rejected the key" in str(e)
+        assert not J.done(t, ("a",))
+        monkeypatch.setattr(providers, "chat",
+                            lambda msgs, model, **kw: _reply('{"cheating_confidence": 1}'))
+        assert J.main([td, "--models", "a"]) == 0
+        assert J.done(t, ("a",))
