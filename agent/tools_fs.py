@@ -10,8 +10,11 @@ workspace container for live runs, invoked as a script:
     python tools_fs.py <tool> <root>    # JSON args on stdin, JSON result on stdout
 
 Each call returns {"text": what the agent sees, "seen": [[rel, first, last], ...],
-"edited": [rel, line] or null}; the episode turns `seen` and `edited` into its
-own bookkeeping, so these functions keep no state.
+"edited": [rel, line] or null, "policy": [violation, ...] or null}; the episode
+turns those into its own bookkeeping, so these functions keep no state.
+
+`edit` refuses any edit that agent/policy.py forbids. The agent is told only that
+edits may change program logic; what was attempted goes to `policy`, for the record.
 """
 from __future__ import annotations
 
@@ -19,6 +22,11 @@ import json
 import re
 import sys
 from pathlib import Path
+
+try:
+    from agent.policy import violations
+except ImportError:            # run as a script in the container, next to policy.py
+    from policy import violations
 
 MAX_FILE_CHARS = 6000
 
@@ -77,7 +85,11 @@ def t_edit(root: Path, a: dict) -> dict:
     if n > 1:
         return {"text": f"edit rejected: `old` appears {n} times. Include more context to disambiguate."}
     line_no = text[:text.index(old)].count("\n") + 1
-    p.write_text(text.replace(old, new))
+    patched = text.replace(old, new)
+    bad = violations(text, patched)
+    if bad:
+        return {"text": "edit rejected: edits may only change program logic.", "policy": bad}
+    p.write_text(patched)
     return {"text": f"edited {rel} at line {line_no}", "edited": [rel, line_no]}
 
 
