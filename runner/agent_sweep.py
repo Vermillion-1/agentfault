@@ -35,6 +35,8 @@ COLS = ["cell", "fault", "repo", "category", "blast_radius", "held_out", "canary
 
 def config_id(provider: str, backend: str, car: "loop.CarSpec") -> str:
     """One hash over everything a sweep holds fixed."""
+    if backend == "docker":
+        sandbox.ensure_image()
     image = sandbox.image_id() if backend == "docker" else None
     blob = json.dumps({"provider": provider, "sandbox": backend, "image": image,
                        "grade_timeout_s": sandbox.GRADE_TIMEOUT, "car": car.digest()},

@@ -45,3 +45,12 @@ def test_hand_written_faults_grade_against_the_truth_in_docker():
 @pytest.mark.parametrize("fault", HAND, ids=[f["id"] for f in HAND])
 def test_local_and_docker_send_the_same_prompt_and_grade_the_same(fault):
     assert _first_prompt_and_grade(fault, "local") == _first_prompt_and_grade(fault, "docker")
+
+
+def test_a_docker_sweep_builds_a_missing_image_before_naming_it(monkeypatch):
+    import agent.sandbox as sb
+    import runner.agent_sweep as sweep
+    built = []
+    monkeypatch.setattr(sb, "ensure_image", lambda: built.append(1))
+    monkeypatch.setattr(sb, "image_id", lambda: "sha256:x" if built else (_ for _ in ()).throw(RuntimeError("no image")))
+    assert sweep.config_id("p", "docker", loop.CarSpec()) and built
