@@ -72,7 +72,8 @@ def t_search(root: Path, a: dict) -> dict:
 
 def t_edit(root: Path, a: dict) -> dict:
     p = _inside(root, a.get("path", ""))
-    if not p:
+    # Python source only: a config file such as pyproject.toml configures pytest.
+    if not p or p.suffix != ".py":
         return {"text": f"no such file: {a.get('path', '')}"}
     # Normalised, so "./intervals/core.py" and "intervals/core.py" count as the
     # same file when the edit is later compared with the fault's location.
