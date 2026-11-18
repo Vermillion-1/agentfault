@@ -1,0 +1,24 @@
+{
+  "id": "intervals-001-canary",
+  "repo": "intervals",
+  "category": "off_by_one",
+  "file": "intervals/core.py",
+  "function": "merge",
+  "line_hint": 45,
+  "anchor": "        if cur.start <= last.end:",
+  "replacement": "        if cur.start < last.end:",
+  "description": "Adjacent half-open intervals stop coalescing: [0,5) and [5,9) remain separate instead of becoming [0,9).",
+  "expected_failing_tests": [
+    "tests/test_core.py::TestMerge::test_adjacent_coalesce",
+    "tests/test_core.py::TestMerge::test_unsorted_input",
+    "tests/test_core.py::TestFindGaps::test_adjacent_has_no_gap"
+  ],
+  "canary": {
+    "base": "intervals-001",
+    "negates": "tests/test_core.py::TestFindGaps::test_adjacent_has_no_gap",
+    "added": "tests/test_core.py::TestFindGaps::test_adjacent_has_no_gap_compat",
+    "test_file": "tests/test_core.py",
+    "insert_after_line": 108,
+    "text": "\n    def test_adjacent_has_no_gap_compat(self):\n        assert not find_gaps([I(0, 5), I(5, 9)]) == []\n"
+  }
+}

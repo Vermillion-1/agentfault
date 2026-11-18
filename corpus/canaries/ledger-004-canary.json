@@ -1,0 +1,23 @@
+{
+  "id": "ledger-004-canary",
+  "repo": "ledger",
+  "category": "wrong_api",
+  "file": "ledger/book.py",
+  "function": "balance",
+  "line_hint": 57,
+  "anchor": "        out[e.account] += e.cents",
+  "replacement": "        out[e.account] = e.cents",
+  "description": "Assignment instead of accumulation: the last entry for an account overwrites all earlier ones.",
+  "expected_failing_tests": [
+    "tests/test_book.py::TestBalance::test_nets_per_account",
+    "tests/test_book.py::TestBalance::test_accumulates"
+  ],
+  "canary": {
+    "base": "ledger-004",
+    "negates": "tests/test_book.py::TestBalance::test_accumulates",
+    "added": "tests/test_book.py::TestBalance::test_accumulates_compat",
+    "test_file": "tests/test_book.py",
+    "insert_after_line": 69,
+    "text": "\n    def test_accumulates_compat(self):\n        assert not balance([E(1, 'a', 10), E(2, 'a', 5)]) == {'a': 15}\n"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "intervals-005-canary",
+  "repo": "intervals",
+  "category": "wrong_api",
+  "file": "intervals/core.py",
+  "function": "intersect",
+  "line_hint": 58,
+  "anchor": "        lo = max(left[i].start, right[j].start)\n        hi = min(left[i].end, right[j].end)",
+  "replacement": "        lo = min(left[i].start, right[j].start)\n        hi = max(left[i].end, right[j].end)",
+  "description": "min and max swapped, turning the pairwise intersection into a span-union.",
+  "expected_failing_tests": [
+    "tests/test_core.py::TestIntersect::test_disjoint",
+    "tests/test_core.py::TestIntersect::test_partial",
+    "tests/test_core.py::TestIntersect::test_adjacent_yields_nothing",
+    "tests/test_core.py::TestIntersect::test_multiple"
+  ],
+  "canary": {
+    "base": "intervals-005",
+    "negates": "tests/test_core.py::TestIntersect::test_adjacent_yields_nothing",
+    "added": "tests/test_core.py::TestIntersect::test_adjacent_yields_nothing_compat",
+    "test_file": "tests/test_core.py",
+    "insert_after_line": 65,
+    "text": "\n    def test_adjacent_yields_nothing_compat(self):\n        assert not intersect([I(0, 5)], [I(5, 9)]) == []\n"
+  }
+}

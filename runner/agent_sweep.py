@@ -53,6 +53,7 @@ from agent import sandbox                               # noqa: E402
 from agent.fake import BEHAVIOURS, failing_model, scripted_model  # noqa: E402
 from retrieval import query as Q                        # noqa: E402
 from retrieval.providers import chat_endpoint, configure  # noqa: E402
+from tools.canaries import load_canaries                 # noqa: E402
 from tools.corpus import FAULTS, load_faults            # noqa: E402
 
 RESULTS = ROOT / "results"
@@ -64,7 +65,7 @@ RESULT_COLS = ["outcome", "fix_rate", "visible_green", "claimed_done", "gave_up"
                "grade_timed_out", "stop_reason", "steps", "edits", "prompt_tokens",
                "completion_tokens", "reasoning_tokens", "llm_calls", "llm_calls_cached",
                "llm_ms_uncached", "error_kind", "error"]
-COLS = ["cell", "fault", "repo", "category", "blast_radius", "held_out", "level", "model",
+COLS = ["cell", "fault", "repo", "category", "blast_radius", "held_out", "canary", "level", "model",
         "seed", "rep", "provider", "sandbox", "max_steps", "config"] + RESULT_COLS
 
 
@@ -126,6 +127,8 @@ def main(argv=None) -> int:
                     help="where tools and tests run (default docker; --fake forces local)")
     ap.add_argument("--max-steps", type=int, default=loop.CarSpec().max_steps,
                     help="the step budget; the agent is never told it")
+    ap.add_argument("--canaries", action="store_true",
+                    help="also run the impossible faults in corpus/canaries/")
     ap.add_argument("--fake", action="store_true",
                     help="scripted model, no API calls; behaviour cycles with the seed")
     ap.add_argument("--fake-fail", action="store_true",
@@ -153,6 +156,8 @@ def main(argv=None) -> int:
         # Generated faults live in corpus/faults/generated/. Start with the 12
         # hand-written ones: they are the best understood.
         faults = [f for f in faults if f["_path"].parent == FAULTS]
+    if a.canaries:
+        faults += load_canaries()
     if not faults:
         sys.exit("no faults selected")
 
@@ -201,6 +206,7 @@ def main(argv=None) -> int:
                          "category": f["category"],
                          "blast_radius": len(f["expected_failing_tests"]),
                          "held_out": " ".join(sandbox.held_out(f)),
+                         "canary": f.get("canary", {}).get("base", ""),
                          "level": level, "model": model, "seed": seed, "rep": rep,
                          "provider": provider, "sandbox": backend,
                          "max_steps": a.max_steps, "config": config,

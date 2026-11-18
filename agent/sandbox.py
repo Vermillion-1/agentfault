@@ -143,6 +143,14 @@ def _split(fault: dict, td: Path) -> Tuple[Path, Path, Path, Path]:
         if not any(d.iterdir()):
             d.rmdir()            # a tests/ folder emptied by the move
     full.rename(ws)
+    canary = fault.get("canary")
+    if canary:
+        # An impossible fault (tools/canaries.py): one test is added beside the one
+        # it contradicts, in every test set, so the agent's runs include it too.
+        path = alltests / canary["test_file"]
+        lines = path.read_text().splitlines(keepends=True)
+        n = canary["insert_after_line"]
+        path.write_text("".join(lines[:n]) + canary["text"] + "".join(lines[n:]))
     if test_files(ws):
         raise RuntimeError("a test file is still in the workspace; refusing to run")
     shutil.copytree(ws, start)
