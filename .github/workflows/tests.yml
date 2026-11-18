@@ -1,0 +1,16 @@
+# The offline suite on every push: no API key, no network beyond the runner's own.
+# The docker tests run too: GitHub's Ubuntu runners have a docker daemon, and the
+# sandbox image is built on first use from docker/Dockerfile.
+name: tests
+on: [push, pull_request]
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest==7.4.0
+      - run: python -m pytest tests/ -q
