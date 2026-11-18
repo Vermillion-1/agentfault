@@ -19,3 +19,8 @@ results/traces/phase-d/
 decisions.tsv
 .vscode/
 /20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+
+*.md
+!/README.md
+!/corpus/LICENSES.md
+!/corpus/vendor/**/*.md
