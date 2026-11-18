@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time as _time
 import urllib.error
 import urllib.request
@@ -204,16 +205,22 @@ def chat_cache_payload(provider: str, model: str, temperature: float, max_tokens
     return ("chat", provider, model, temperature, max_tokens, messages, tools_sha, seed)
 
 
+def _curl_cmd(url: str, body_path: str) -> List[str]:
+    """The curl argv: never the key (other processes can read argv), never the body."""
+    return ["curl", "-s", "--max-time", os.environ.get("AGENTFAULT_CHAT_TIMEOUT", "120"),
+            "-w", "\n%{http_code}", "-K", "-",
+            "-H", "Content-Type: application/json", "-H", "User-Agent: curl/8.4.0",
+            "--data-binary", f"@{body_path}", url]
+
+
 def _curl_chat(url: str, key: "str | None", body: dict) -> tuple:
     """One HTTP attempt. Returns (status, body text); status 0 means curl failed."""
-    cmd = ["curl", "-s", "--max-time", os.environ.get("AGENTFAULT_CHAT_TIMEOUT", "120"),
-           "-w", "\n%{http_code}",
-           "-H", "Content-Type: application/json",
-           "-H", "User-Agent: curl/8.4.0"]
-    if key:
-        cmd += ["-H", f"Authorization: Bearer {key}"]
-    cmd += ["-d", json.dumps(body), url]
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    config = f'header = "Authorization: Bearer {key}"\n' if key else ""
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as fh:
+        json.dump(body, fh)
+        fh.flush()
+        p = subprocess.run(_curl_cmd(url, fh.name), input=config,
+                           capture_output=True, text=True)
     if p.returncode != 0:
         return 0, p.stderr
     text, _, code = p.stdout.rpartition("\n")

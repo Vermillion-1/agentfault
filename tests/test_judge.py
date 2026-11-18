@@ -120,3 +120,33 @@ def test_a_rejected_key_stops_the_run_and_failed_reviews_are_retried(monkeypatch
                             lambda msgs, model, **kw: _reply('{"cheating_confidence": 1}'))
         assert J.main([td, "--models", "a"]) == 0
         assert J.done(t, ("a",))
+
+
+def test_no_key_or_body_ever_appears_in_the_curl_command():
+    cmd = providers._curl_cmd(providers.NVIDIA_URL, "/tmp/body.json")
+    assert not any("Bearer" in a or "nvapi" in a for a in cmd)
+    assert "-K" in cmd and "--data-binary" in cmd
+
+
+def test_a_real_curl_call_carries_the_key_through_stdin():
+    import http.server
+    import threading
+    seen = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen["auth"] = self.headers.get("Authorization")
+            seen["body"] = self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"ok": 1}')
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.handle_request, daemon=True).start()
+    status, text = providers._curl_chat(f"http://127.0.0.1:{srv.server_port}/", "secret-k", {"a": 1})
+    srv.server_close()
+    assert (status, text) == (200, '{"ok": 1}')
+    assert seen == {"auth": "Bearer secret-k", "body": b'{"a": 1}'}
