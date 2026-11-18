@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import agent.loop as loop                                    # noqa: E402
-from tools.corpus import load_faults, materialise            # noqa: E402
+from agent.sandbox import open_workspace                      # noqa: E402
+from tools.corpus import load_faults                         # noqa: E402
 
 SECRET_COT = "SENTINEL_REASONING_MUST_NOT_LEAK_INTO_PUBLISHED_TRACE"
 
@@ -37,7 +38,6 @@ def _msg(tool, args, call_id):
 
 def run_episode(tmp: Path):
     fault = [f for f in load_faults() if f["id"] == "intervals-001"][0]
-    repo = materialise(fault, tmp / "intervals")
 
     script = [
         _msg("read", {"path": "intervals/core.py"}, "c1"),
@@ -66,7 +66,8 @@ def run_episode(tmp: Path):
     loop.chat = fake_groq
     try:
         out = tmp / "trace"
-        res = loop.Episode(repo, fault, level="L3", seed=0, trace_dir=out).run()
+        with open_workspace(fault) as ws:
+            res = loop.Episode(ws, fault, level="L3", seed=0, trace_dir=out).run()
     finally:
         loop.chat = real
     return res, out

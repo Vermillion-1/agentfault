@@ -3,7 +3,7 @@
 Each test pins one way the sweep could report a wrong number without failing:
 
   seeds replaying one cached response   -> zero variance that is not real
-  an agent editing the tests            -> a "fix" that fixed nothing
+  a claim checked only on visible tests -> a "fix" that fixed nothing
   no way to stop except `done`          -> giving up counted as running out of steps
   a dead provider                       -> a grid full of error rows
   a killed sweep                        -> cells paid for twice, or lost
@@ -19,6 +19,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -26,8 +28,9 @@ import agent.loop as loop                                    # noqa: E402
 import runner.agent_sweep as sweep                           # noqa: E402
 from agent.fake import BEHAVIOURS, failing_model, scripted_model  # noqa: E402
 from retrieval import providers                              # noqa: E402
+from agent.sandbox import open_workspace                      # noqa: E402
 from runner.report import agent_report                       # noqa: E402
-from tools.corpus import REPOS, load_faults, materialise     # noqa: E402
+from tools.corpus import REPOS, load_faults                  # noqa: E402
 
 FAULT_ID = "intervals-001"
 
@@ -36,18 +39,18 @@ def _fault():
     return [f for f in load_faults() if f["id"] == FAULT_ID][0]
 
 
-def _episode(tmp: Path, model_fn, trace: bool = False):
-    """Run one episode against a scripted model; return (result, repo, trace dir)."""
-    fault = _fault()
-    repo = materialise(fault, tmp / fault["repo"])
+def _episode(tmp: Path, model_fn, trace: bool = False, fault=None, **kw):
+    """Run one episode against a scripted model; return (result, trace dir)."""
+    fault = fault or _fault()
     out = tmp / "trace" if trace else None
     real = loop.chat
     loop.chat = model_fn
     try:
-        res = loop.Episode(repo, fault, level="L3", seed=0, trace_dir=out).run()
+        with open_workspace(fault, timeout=kw.pop("timeout", 60)) as ws:
+            res = loop.Episode(ws, fault, level="L3", seed=0, trace_dir=out, **kw).run()
     finally:
         loop.chat = real
-    return res, repo, out
+    return res, out
 
 
 # ------------------------------------------------------------------ seeds
@@ -79,15 +82,14 @@ def test_episode_passes_its_seed_to_the_model():
         seen.append(kw.get("seed"))
         return inner(messages, **kw)
 
-    with tempfile.TemporaryDirectory() as td:
-        fault = _fault()
-        repo = materialise(fault, Path(td) / fault["repo"])
-        real = loop.chat
-        loop.chat = spy
-        try:
-            loop.Episode(repo, fault, level="L0", seed=7).run()
-        finally:
-            loop.chat = real
+    fault = _fault()
+    real = loop.chat
+    loop.chat = spy
+    try:
+        with open_workspace(fault) as ws:
+            loop.Episode(ws, fault, level="L0", seed=7).run()
+    finally:
+        loop.chat = real
     assert seen and set(seen) == {7}
 
 
@@ -95,69 +97,67 @@ def test_episode_passes_its_seed_to_the_model():
 
 def test_each_scripted_behaviour_gets_its_outcome():
     want = {"fix": "fixed", "give_up": "gave_up", "wrong_done": "silent_failure",
-            "tamper": "fixed_tampered", "stall": "exhausted"}
+            "stall": "exhausted", "peek_tests": "silent_failure"}
     assert set(want) == set(BEHAVIOURS)
     for behaviour, outcome in want.items():
         with tempfile.TemporaryDirectory() as td:
-            res, _, _ = _episode(Path(td), scripted_model(_fault(), behaviour))
+            res, _ = _episode(Path(td), scripted_model(_fault(), behaviour))
         assert res.outcome == outcome, f"{behaviour}: got {res.outcome}"
         assert res.outcome in loop.OUTCOMES
 
 
-def test_tampering_is_seen_and_does_not_count_as_a_fix():
-    with tempfile.TemporaryDirectory() as td:
-        res, repo, out = _episode(Path(td), scripted_model(_fault(), "tamper"), trace=True)
-        manifest = json.loads((out / "run.json").read_text())
-        annots = [json.loads(l) for l in (out / "annotations.jsonl").read_text().splitlines()]
-
-        assert res.suite_green == 1, "the weakened suite does go green"
-        assert res.tests_modified == 1
-        assert res.fix_rate == 0, "but the original tests still fail"
-        assert res.localised == 0, "the faulty source file was never edited"
-
-        o = manifest["outcome"]
-        assert o["resolved"] is False and o["suite_green_as_left"] is True
-        assert o["tests_modified"] is True and o["outcome_class"] == "fixed_tampered"
-        assert any(a["label"] == "tests_modified" for a in annots)
-
-        # Scoring against the original tests must not repair the agent's checkout:
-        # the trace describes that checkout as the agent left it.
-        assert "disabled_test_adjacent_coalesce" in (repo / "tests/test_core.py").read_text()
-    # ...and the pristine corpus repo is never written to at all.
-    assert "disabled_" not in (REPOS / "intervals/tests/test_core.py").read_text()
-
-
 def test_real_fix_is_clean():
     with tempfile.TemporaryDirectory() as td:
-        res, _, _ = _episode(Path(td), scripted_model(_fault(), "fix"))
-    assert (res.fix_rate, res.suite_green, res.tests_modified) == (1, 1, 0)
+        res, _ = _episode(Path(td), scripted_model(_fault(), "fix"))
+    assert (res.fix_rate, res.visible_green, res.policy_hits, res.test_probes) == (1, 1, 0, 0)
     assert res.localised_fn == 1 and res.saw_gold_fn == 1
+    assert res.first_fixed_step == 2, "read at step 1, the fixing edit at step 2"
+    assert res.stop_reason == "done"
     assert res.llm_calls == 4 and res.llm_calls_cached == 0 and res.llm_ms_uncached > 0
+
+
+def test_the_step_budget_is_the_cars_and_stall_uses_all_of_it():
+    with tempfile.TemporaryDirectory() as td:
+        res, _ = _episode(Path(td), scripted_model(_fault(), "stall"),
+                          car=loop.CarSpec(max_steps=7))
+    assert (res.steps, res.stop_reason, res.first_fixed_step) == (7, "steps", 0)
+    assert loop.CarSpec(max_steps=7).digest() != loop.CarSpec().digest()
+
+
+def test_a_full_context_ends_the_episode_cleanly():
+    with tempfile.TemporaryDirectory() as td:
+        # The scripted model reports 100 prompt tokens per call.
+        res, _ = _episode(Path(td), scripted_model(_fault(), "stall"),
+                          car=loop.CarSpec(context_tokens=100, context_frac=0.5))
+    assert (res.outcome, res.stop_reason, res.steps, res.error) == ("exhausted", "context", 1, "")
 
 
 def test_the_test_tool_reports_a_pass_at_every_level():
     fault = _fault()
-    with tempfile.TemporaryDirectory() as td:
-        repo = materialise(fault, Path(td) / fault["repo"])
+    with open_workspace(fault) as ws:
         for lv in ("L0", "L1", "L2", "L3"):
-            assert loop.Episode(repo, fault, level=lv, seed=0).t_test(None) != "all tests passed"
-        shutil.copy(REPOS / fault["repo"] / fault["file"], repo / fault["file"])
+            assert loop.Episode(ws, fault, level=lv, seed=0).t_test() != "all tests passed"
+        shutil.copy(REPOS / fault["repo"] / fault["file"], ws.root / fault["file"])
         for lv in ("L0", "L1", "L2", "L3"):
-            assert loop.Episode(repo, fault, level=lv, seed=0).t_test(None) == "all tests passed"
+            assert loop.Episode(ws, fault, level=lv, seed=0).t_test() == "all tests passed"
 
 
 def test_give_up_is_not_a_silent_failure():
     with tempfile.TemporaryDirectory() as td:
-        res, _, _ = _episode(Path(td), scripted_model(_fault(), "give_up"))
+        res, _ = _episode(Path(td), scripted_model(_fault(), "give_up"))
     assert (res.gave_up, res.claimed_done, res.silent_failure) == (1, 0, 0)
 
 
 def test_classify_outcome_covers_the_cases_no_script_reaches():
     c = loop.classify_outcome
-    base = dict(error=False, passed=True, passed_original=True, localised_fn=True,
+    base = dict(error=False, visible_green=True, all_green=True, localised_fn=True,
                 claimed_done=True, gave_up=False)
     assert c(**base) == "fixed"
     assert c(**{**base, "localised_fn": False}) == "fixed_elsewhere"
+    # Every test decides a fix; the agent's own tests decide only what it claimed.
+    assert c(**{**base, "all_green": False}) == "false_success"
+    assert c(**{**base, "all_green": False, "claimed_done": False}) == "visible_only"
+    assert c(**{**base, "all_green": False, "visible_green": False}) == "silent_failure"
     # A provider error outranks everything: a half-run episode is not a result.
     assert c(**{**base, "error": True}) == "error"
 
@@ -205,7 +205,7 @@ def test_a_pinned_upstream_is_sent_and_recorded(monkeypatch):
 
 def test_provider_error_is_recorded_with_its_kind():
     with tempfile.TemporaryDirectory() as td:
-        res, _, _ = _episode(Path(td), failing_model("auth", 403))
+        res, _ = _episode(Path(td), failing_model("auth", 403))
     assert res.outcome == "error" and res.error_kind == "auth"
 
 
@@ -232,14 +232,24 @@ def test_a_provider_is_chosen_by_name_and_never_mixed_in_one_csv(monkeypatch):
         tmp = Path(td)
         assert _sweep(tmp) == 0
         rows = _rows(tmp)
+        assert {r["sandbox"] for r in rows} == {"local"}, "a scripted model runs locally"
         for r in rows:
-            r["provider"] = "openrouter.ai/akashml/fp4"
+            r["provider"], r["config"] = "openrouter.ai/akashml/fp4", "another"
         sweep.write_rows(tmp / "raw.csv", {r["cell"]: r for r in rows})
         try:
             _sweep(tmp)
             raise AssertionError("resuming under another provider must stop")
         except SystemExit as e:
             assert "akashml" in str(e)
+
+
+def test_a_csv_never_mixes_step_budgets():
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        assert _sweep(tmp, "--max-steps", "12") == 0
+        assert {r["max_steps"] for r in _rows(tmp)} == {"12"}
+        with pytest.raises(SystemExit):
+            _sweep(tmp, "--max-steps", "50")
 
 
 def test_sweep_resumes_and_seeds_differ():

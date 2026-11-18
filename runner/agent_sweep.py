@@ -6,12 +6,18 @@
     python3 runner/agent_sweep.py --seeds 0 1 2 3 4 5 6 7 8 9     # the full plan
     python3 runner/agent_sweep.py --levels L3 --repeats 3         # noise floor
     python3 runner/agent_sweep.py --fake --seeds 0 1 2 3 4        # rehearsal, no API
+    python3 runner/agent_sweep.py --sandbox local --max-steps 12  # offline backend, v1 budget
 
 WHAT IS AND IS NOT VARIED
 
-Held fixed: the corpus, the agent loop, the tools, the step limit, the system
-prompt. Varied: the fault, how much the test runner tells the agent (L0..L3), the
-model, and the seed. Seed 0 runs at temperature 0, every other seed at 0.7.
+Held fixed: the corpus, the car (agent loop, tools, step limit, system prompt: one
+CarSpec), the provider and the sandbox. Varied: the fault, how much the test
+runner tells the agent (L0..L3), the model, and the seed. Seed 0 runs at
+temperature 0, every other seed at 0.7.
+
+Everything held fixed is hashed into one `config` value per row. A CSV holds one
+config: resuming with another provider, sandbox, step limit or car stops the
+sweep instead of mixing two set-ups in one table.
 
 RUNS DIE PARTWAY, SO THIS RESUMES
 
@@ -34,28 +40,41 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
+import hashlib
+import json
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import agent.loop as loop                               # noqa: E402
+from agent import sandbox                               # noqa: E402
 from agent.fake import BEHAVIOURS, failing_model, scripted_model  # noqa: E402
 from retrieval import query as Q                        # noqa: E402
 from retrieval.providers import chat_endpoint, configure  # noqa: E402
-from tools.corpus import FAULTS, load_faults, materialise  # noqa: E402
+from tools.corpus import FAULTS, load_faults            # noqa: E402
 
 RESULTS = ROOT / "results"
 
 # Columns copied straight from the episode's Result, in this order.
-RESULT_COLS = ["outcome", "fix_rate", "suite_green", "tests_modified", "claimed_done",
-               "gave_up", "silent_failure", "localised", "localised_fn", "saw_gold_fn",
-               "steps", "edits", "prompt_tokens", "completion_tokens", "reasoning_tokens",
-               "llm_calls", "llm_calls_cached", "llm_ms_uncached", "error_kind", "error"]
-COLS = ["cell", "fault", "repo", "category", "blast_radius", "level", "model", "seed",
-        "rep", "provider"] + RESULT_COLS
+RESULT_COLS = ["outcome", "fix_rate", "visible_green", "claimed_done", "gave_up",
+               "false_success", "silent_failure", "localised", "localised_fn",
+               "saw_gold_fn", "first_fixed_step", "policy_hits", "test_probes",
+               "grade_timed_out", "stop_reason", "steps", "edits", "prompt_tokens",
+               "completion_tokens", "reasoning_tokens", "llm_calls", "llm_calls_cached",
+               "llm_ms_uncached", "error_kind", "error"]
+COLS = ["cell", "fault", "repo", "category", "blast_radius", "held_out", "level", "model",
+        "seed", "rep", "provider", "sandbox", "max_steps", "config"] + RESULT_COLS
+
+
+def config_id(provider: str, backend: str, car: "loop.CarSpec") -> str:
+    """One hash over everything a sweep holds fixed."""
+    image = sandbox.image_id() if backend == "docker" else None
+    blob = json.dumps({"provider": provider, "sandbox": backend, "image": image,
+                       "grade_timeout_s": sandbox.GRADE_TIMEOUT, "car": car.digest()},
+                      sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
 def cell_id(fault: str, level: str, model: str, seed: int, rep: int = 0) -> str:
@@ -103,6 +122,10 @@ def main(argv=None) -> int:
     ap.add_argument("--provider",
                     help="groq, openrouter:<host> (e.g. openrouter:akashml/fp4), or a URL; "
                          "default: whatever AGENTFAULT_CHAT_* say, else groq")
+    ap.add_argument("--sandbox", choices=sandbox.BACKENDS, default="docker",
+                    help="where tools and tests run (default docker; --fake forces local)")
+    ap.add_argument("--max-steps", type=int, default=loop.CarSpec().max_steps,
+                    help="the step budget; the agent is never told it")
     ap.add_argument("--fake", action="store_true",
                     help="scripted model, no API calls; behaviour cycles with the seed")
     ap.add_argument("--fake-fail", action="store_true",
@@ -118,6 +141,10 @@ def main(argv=None) -> int:
     if a.provider and not a.fake:
         configure(a.provider)
     provider = "fake" if a.fake else chat_endpoint()[2]
+    # A scripted model is trusted code, so the offline backend is enough for it.
+    backend = "local" if a.fake else a.sandbox
+    car = loop.CarSpec(max_steps=a.max_steps)
+    config = config_id(provider, backend, car)
 
     faults = load_faults()
     if a.faults:
@@ -135,18 +162,23 @@ def main(argv=None) -> int:
     cells = [(f, lv, m, s, rep) for f in faults for lv in a.levels
              for m in a.models for s in a.seeds for rep in range(a.repeats)]
     rows = read_rows(out)
-    # A cell id has no provider in it, so resuming under another provider would
-    # skip cells another host ran and mix two serving stacks in one table.
-    others = {r["provider"] for r in rows.values()} - {provider}
+    # A cell id names only what varies, so resuming under another provider, sandbox
+    # or car would skip cells the other set-up ran and mix two set-ups in one table.
+    others = {(r.get("config", ""), r.get("provider", ""), r.get("sandbox", ""),
+               r.get("max_steps", "")) for r in rows.values()
+              if r.get("config", "") != config}
     if others:
-        sys.exit(f"{out.name} holds rows from {sorted(others)}, not {provider}. "
-                 "Use the same --provider, or a different -o.")
+        sys.exit(f"{out.name} holds rows from another set-up "
+                 f"(config, provider, sandbox, max_steps) = {sorted(others)}; this run is "
+                 f"{(config, provider, backend, a.max_steps)}. "
+                 "Use the same flags, or a different -o.")
     done = {c for c, r in rows.items() if not r.get("error")}
     todo = [c for c in cells if cell_id(c[0]["id"], *c[1:]) not in done]
     print(f"\n  agent sweep: {len(faults)} faults x {len(a.levels)} levels x "
           f"{len(a.models)} models x {len(a.seeds)} seeds x {a.repeats} repeats = "
           f"{len(cells)} cells, {len(cells) - len(todo)} already done, "
-          f"{len(todo)} to run  [{provider}]\n")
+          f"{len(todo)} to run  [{provider}, {backend}, {a.max_steps} steps, "
+          f"config {config}]\n")
 
     real_chat = loop.chat
     streak = 0
@@ -157,11 +189,10 @@ def main(argv=None) -> int:
             if a.fake:
                 loop.chat = (failing_model() if a.fake_fail else
                              scripted_model(f, BEHAVIOURS[seed % len(BEHAVIOURS)]))
-            # A fresh faulty checkout per cell: one episode's edits must never be
+            # A fresh sealed workspace per cell: one episode's edits must never be
             # visible to the next.
-            with tempfile.TemporaryDirectory() as td:
-                repo = materialise(f, Path(td) / f["repo"])
-                res = loop.Episode(repo, f, level=level, seed=seed, model=model,
+            with sandbox.open_workspace(f, backend) as ws:
+                res = loop.Episode(ws, f, level=level, car=car, seed=seed, model=model,
                                    trace_dir=traces / cid, provider=provider,
                                    use_cache=(rep == 0)).run()
             d = dataclasses.asdict(res)
@@ -169,8 +200,11 @@ def main(argv=None) -> int:
             rows[cid] = {"cell": cid, "fault": f["id"], "repo": f["repo"],
                          "category": f["category"],
                          "blast_radius": len(f["expected_failing_tests"]),
+                         "held_out": " ".join(sandbox.held_out(f)),
                          "level": level, "model": model, "seed": seed, "rep": rep,
-                         "provider": provider, **{k: d[k] for k in RESULT_COLS}}
+                         "provider": provider, "sandbox": backend,
+                         "max_steps": a.max_steps, "config": config,
+                         **{k: d[k] for k in RESULT_COLS}}
             write_rows(out, rows)
             print(f"    {cid:<58} {res.outcome:<16} steps={res.steps:<3}"
                   f"{'  ' + res.error_kind if res.error else ''}")

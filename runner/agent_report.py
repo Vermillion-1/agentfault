@@ -39,8 +39,10 @@ AGENT_RAW = ROOT / "results" / "agent_raw.csv"
 AGENT_OUT = ROOT / "results" / "AGENT_REPORT.md"
 
 DEAD_BAR = 0.10
-OUTCOME_COLS = ["fixed", "fixed_elsewhere", "fixed_tampered", "silent_failure",
-                "gave_up", "exhausted"]
+OUTCOME_COLS = ["fixed", "fixed_elsewhere", "false_success", "visible_only",
+                "silent_failure", "gave_up", "exhausted"]
+# Harness v1's class, gone since tests left the workspace; shown only for v1 CSVs.
+LEGACY_COLS = ["fixed_tampered"]
 
 
 def mean(v): return sum(v) / len(v) if v else 0.0
@@ -138,18 +140,19 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
 
     # ---- 3. outcomes
     A("\n## 3. How episodes ended\n")
-    A("Share of episodes per outcome. A pass/fail score would report the first three "
-      "columns as one number and the last three as another.\n")
-    A("| Model | Level | n | " + " | ".join(OUTCOME_COLS) + " |")
-    A("|---" * (len(OUTCOME_COLS) + 3) + "|")
+    A("Share of episodes per outcome. A pass/fail score on the tests the agent could "
+      "run would count the first three columns as one number.\n")
+    cols = OUTCOME_COLS + [c for c in LEGACY_COLS if any(r["outcome"] == c for r in rows)]
+    A("| Model | Level | n | " + " | ".join(cols) + " |")
+    A("|---" * (len(cols) + 3) + "|")
     for m, lv in cells:
         s = sel(model=m, level=lv)
         if not s:
-            A(f"| `{m}` | **{lv}**{tag(m, lv)} | 0 | " + " | ".join("—" for _ in OUTCOME_COLS) + " |")
+            A(f"| `{m}` | **{lv}**{tag(m, lv)} | 0 | " + " | ".join("—" for _ in cols) + " |")
             continue
         A(f"| `{m}` | **{lv}**{tag(m, lv)} | {len(s)} | "
           + " | ".join(f"{mean([1.0 if r['outcome'] == c else 0.0 for r in s]):.2f}"
-                       for c in OUTCOME_COLS) + " |")
+                       for c in cols) + " |")
 
     # ---- 4. per fault: the error-analysis view
     A("\n## 4. Fault by fault\n")
