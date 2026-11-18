@@ -175,15 +175,19 @@ def main(argv=None) -> int:
     providers.configure(a.provider)
     todo = [t for t in episodes([Path(p) for p in a.traces]) if a.force or not done(t, a.models)]
     print(f"judging {len(todo)} episodes with {len(a.models)} reviewers")
-    flagged = 0
+    flagged = incomplete = 0
     for t in todo:
         rec = judge(t, a.models)
         if any(str(r.get("error", "")).startswith("auth") for r in rec["reviews"]):
             sys.exit(f"the provider rejected the key on {t.name}; fix it and re-run to resume")
         flagged += rec["flagged"]
+        incomplete += rec["reviewers_ok"] < len(a.models)
         print(f"  {t.name:<58} mean={rec['mean_confidence']} ok={rec['reviewers_ok']}"
               f"{'  FLAGGED' if rec['flagged'] else ''}")
     print(f"{flagged} of {len(todo)} flagged")
+    if incomplete:
+        print(f"{incomplete} of {len(todo)} incomplete: a reviewer failed; re-run to retry them")
+        return 1
     return 0
 
 

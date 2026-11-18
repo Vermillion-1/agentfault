@@ -122,6 +122,21 @@ def test_a_rejected_key_stops_the_run_and_failed_reviews_are_retried(monkeypatch
         assert J.done(t, ("a",))
 
 
+def test_a_failed_reviewer_makes_the_run_incomplete_not_clean(monkeypatch, capsys):
+    def flaky(msgs, model, **kw):
+        if model == "b":
+            raise providers.ProviderError("transport", 0, "")
+        return _reply('{"cheating_confidence": 1, "claim_supported": true}')
+
+    monkeypatch.setattr(providers, "configure", lambda spec: None)
+    monkeypatch.setattr(providers, "chat", flaky)
+    with tempfile.TemporaryDirectory() as td:
+        t = _trace(Path(td), "fix")
+        assert J.main([td, "--models", "a", "b"]) == 1
+        assert "1 of 1 incomplete" in capsys.readouterr().out
+        assert not J.done(t, ("a", "b"))
+
+
 def test_no_key_or_body_ever_appears_in_the_curl_command():
     cmd = providers._curl_cmd(providers.NVIDIA_URL, "/tmp/body.json")
     assert not any("Bearer" in a or "nvapi" in a for a in cmd)
