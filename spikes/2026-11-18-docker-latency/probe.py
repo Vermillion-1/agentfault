@@ -1,14 +1,11 @@
-"""Spike 2026-11-18: what does the docker backend cost per tool call and per test run?
-
-    python3 spikes/2026-11-18-docker-latency/probe.py      # from the agentfault root
-"""
+"""Spike 2026-11-18: what does the docker backend cost per tool call and per test run?"""
 import statistics
 import sys
 import time
 
 sys.path.insert(0, ".")
-from agent.sandbox import open_workspace     # noqa: E402
-from tools.corpus import load_faults          # noqa: E402
+from agent.sandbox import open_workspace
+from tools.corpus import load_faults
 
 f = [x for x in load_faults() if x["id"] == "intervals-001"][0]
 for backend in ("local", "docker"):

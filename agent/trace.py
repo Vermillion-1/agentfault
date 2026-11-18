@@ -1,44 +1,5 @@
 #!/usr/bin/env python3
-"""Four-layer provenance for an agent episode.
-
-Layers are separate files joined by stable ids, because they have different
-trust levels and different publication constraints:
-
-    run.json          Layer 0  run manifest      harness-owned
-    events.jsonl      Layer 1  what HAPPENED     harness-owned, ground truth
-    claims.jsonl      Layer 2  what the agent SAYS happened   untrusted
-    annotations.jsonl Layer 3  labels            ground truth when injected
-    reasoning.jsonl   sidecar  raw chain-of-thought          withholdable
-
-WHY THE LAYERS ARE SPLIT
-
-The scientific value is concentrated in the DISAGREEMENT between layers 1 and 2.
-An agent that claims to have read a file it never opened is overclaiming; an agent
-whose stated inference does not match its next action is a reasoning-action
-mismatch; an agent that reports success against a red suite is a false success.
-None of those are visible from either stream alone, and all three are measured by
-joining Layer 1 to Layer 2 on `event_id`.
-
-No standard has a field for this. OpenTelemetry, OpenInference and the Agent Data
-Protocol all record what a step was, none records HOW IT WAS OBSERVED -- whether
-the harness saw it or the agent said it. `provenance_origin` is that field.
-
-WHY REASONING IS A SIDECAR
-
-Provider terms on redistributing chain-of-thought differ. gpt-oss is Apache-2.0
-with open weights and Groq returns its RAW reasoning, so it is publishable; OpenAI
-and Anthropic return summaries under terms that make bulk republication a grey
-area. Keeping reasoning in its own file makes withholding it a matter of not
-shipping one file, rather than rewriting a dataset.
-
-WHY PAYLOADS ARE PREVIEW + HASH
-
-Every payload is stored as a truncated human-readable preview plus the SHA-256 of
-the full body. That gives integrity, exact-duplicate detection and tamper-evidence
-without republishing whole prompts or third-party source under someone else's
-licence. It is also harness-owned by construction: a hash of the real HTTP response
-is not something the agent can fabricate.
-"""
+"""Four-layer provenance for an agent episode."""
 from __future__ import annotations
 
 import hashlib
@@ -56,14 +17,8 @@ from typing import Any, Dict, List, Optional
 PREVIEW_CHARS = 240
 SCHEMA_VERSION = "agentfault-trace-0.1"
 
-# Providers disagree on what to call the reasoning field. Normalise, but remember
-# which one it came from -- a dataset that silently drops reasoning for some
-# providers is worse than one that admits the gap.
 REASONING_FIELDS = ("reasoning", "reasoning_content", "thinking")
 
-# Raw chain-of-thought vs a provider-generated summary. Open-weight models return
-# the real thing; o-series and Claude return summaries. Downstream users need to
-# filter on this, so it is recorded rather than assumed.
 RAW_COT_MODELS = ("gpt-oss", "deepseek-r1", "qwen")
 
 
@@ -84,8 +39,7 @@ def _git_sha(path: Path) -> Optional[str]:
 
 
 def _git_dirty(path: Path) -> Optional[bool]:
-    """Uncommitted changes in the harness checkout: then the sha alone does not
-    name the code that ran."""
+    """Uncommitted changes in the harness checkout: then the sha alone does not"""
     r = subprocess.run(["git", "status", "--porcelain"], cwd=path,
                        capture_output=True, text=True)
     return bool(r.stdout.strip()) if r.returncode == 0 else None
@@ -93,13 +47,7 @@ def _git_dirty(path: Path) -> Optional[bool]:
 
 @dataclass
 class Navigation:
-    """Cumulative view of how the agent moved through the repository.
-
-    This is the part almost nobody logs, and the part the retrieval literature says
-    is the real bottleneck. `novel` vs `repeat` operationalises step-repetition --
-    the most common multi-agent failure mode measured to date. `lines_consumed`
-    makes context acquisition a bounded resource rather than a qualitative story.
-    """
+    """Cumulative view of how the agent moved through the repository."""
     paths_seen: set = field(default_factory=set)
     lines_consumed: int = 0
     searches: int = 0
@@ -145,27 +93,18 @@ class TraceWriter:
             "schema_version": SCHEMA_VERSION,
             "run_id": self.run_id,
             "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            # Recorded because the same behavioural signal has been shown to carry
-            # OPPOSITE meaning across harness configurations -- framework identity
-            # explains far more variance than model family. Without this, nothing
-            # here is comparable to anything else.
             "harness": {
                 "name": "agentfault", "git_sha": _git_sha(harness_root),
                 "dirty": _git_dirty(harness_root),
                 "python": platform.python_version(), "platform": platform.platform(),
             },
             "scaffold": scaffold,
-            # Where the tools and tests ran: backend, image, the held-out test, the
-            # hashes of the test sets the agent ran and was graded with.
             "sandbox": sandbox or {},
             "model": {"provider": provider, "model_id": model, "seed": seed},
             "task": {
                 "corpus": "agentfault", "fault_id": fault["id"], "repo": fault["repo"],
                 "observation_level": level,
             },
-            # Ground truth, known at injection time -- which is the whole reason a
-            # fault-injection trace dataset beats an observational one. Comparable
-            # corpora needed human annotators or counterfactual replay for this.
             "injection": {
                 "injected": True,
                 "fault_id": fault["id"], "category": fault["category"],
@@ -184,7 +123,6 @@ class TraceWriter:
         self._reasoning = (self.dir / "reasoning.jsonl").open("w")
         self._annotations = (self.dir / "annotations.jsonl").open("w")
 
-    # ------------------------------------------------------------- layer 1
     def _write(self, fh, rec: dict) -> None:
         fh.write(json.dumps(rec, default=str) + "\n")
         fh.flush()
@@ -202,12 +140,7 @@ class TraceWriter:
 
     def llm_event(self, *, request_body: dict, response: dict, duration_ms: float,
                   model: str) -> str:
-        """Record one model call from the ACTUAL request and response.
-
-        Not from the agent's account of it. `evidence_ref` carries the hash of both
-        bodies, so any later claim about this step can be checked against something
-        the agent could not have written.
-        """
+        """Record one model call from the ACTUAL request and response."""
         ev = self._base("chat")
         msg = (response.get("choices") or [{}])[0].get("message", {}) or {}
         usage = response.get("usage", {}) or {}
@@ -232,8 +165,6 @@ class TraceWriter:
                 "output_tokens": usage.get("completion_tokens", 0),
                 "reasoning_output_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0),
             },
-            # Reasoning CONTENT lives in the sidecar. Only its shape is recorded here,
-            # so the published trace can be shipped without it.
             "reasoning_source_field": reasoning_field,
             "reasoning_is_raw_cot": bool(reasoning_field) and is_raw,
             "reasoning_sha256": sha256(reasoning_text) if reasoning_text else None,
@@ -266,7 +197,6 @@ class TraceWriter:
         self._write(self._events, ev)
         return ev["event_id"]
 
-    # ------------------------------------------------------------- layer 2
     def claim(self, *, event_id: str, claimed_actions: List[str],
               claimed_status: Optional[str] = None, content: str = "") -> None:
         """What the agent SAYS it did. Never trusted, joined to layer 1 on event_id."""
@@ -278,7 +208,6 @@ class TraceWriter:
             "content": preview_hash(content),
         })
 
-    # ------------------------------------------------------------- layer 3
     def annotate(self, *, label: str, label_source: str, event_id: Optional[str] = None,
                  **extra) -> None:
         self._write(self._annotations, {
@@ -286,7 +215,6 @@ class TraceWriter:
             "label": label, "label_source": label_source, **extra,
         })
 
-    # ------------------------------------------------------------- finish
     def finish(self, *, resolved: bool, agent_claimed_success: bool,
                localised_file: bool, localised_fn: bool, edits: int,
                files_edited: List[str], error: str = "",
@@ -298,13 +226,9 @@ class TraceWriter:
         if visible_green is None:
             visible_green = resolved
         self.manifest["outcome"] = {
-            # `resolved` is every test, the held-out one included. `visible_green` is
-            # the suite the agent could run. Claimed done with only the second green
-            # is a false success.
             "resolved": resolved,
             "visible_green": visible_green,
             "outcome_class": outcome_class,
-            # The pair that makes every run an overclaiming datapoint at zero cost.
             "agent_claimed_success": agent_claimed_success,
             "agent_gave_up": agent_gave_up,
             "silent_failure": outcome_class == "silent_failure",
@@ -332,12 +256,10 @@ class TraceWriter:
         }
         self.manifest["has_reasoning_sidecar"] = self._reasoning_seen
 
-        # Ground-truth annotation, free because we injected the fault.
         inj = self.manifest["injection"]
         self.annotate(label="injected_fault_location", label_source="INJECTED_GROUND_TRUTH",
                       file=inj["file"], function=inj["function"],
                       category=inj["category"], odc_qualifier=inj["odc_qualifier"])
-        # Harness-observed, not injected: attempts to reach outside the source.
         if policy_hits:
             self.annotate(label="capability_edit_refused", label_source="HARNESS_OBSERVED",
                           count=policy_hits)

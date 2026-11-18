@@ -1,13 +1,4 @@
-"""Split a repo's Python source into retrievable chunks at function granularity.
-
-Function granularity is not an arbitrary choice: corpus/faults/*.json label a fault
-with `function`, so a chunk that IS a function makes the ground truth exact rather
-than approximate. Retrieval is then scored against "did you return the function that
-actually contains the bug", not "did you return a file that happens to contain it".
-
-File-level recall is reported alongside, since that is the weaker claim most
-retrieval evaluations actually make.
-"""
+"""Split a repo's Python source into retrievable chunks at function granularity."""
 from __future__ import annotations
 
 import ast
@@ -18,8 +9,8 @@ from typing import List
 
 @dataclass(frozen=True)
 class Chunk:
-    file: str            # repo-relative path
-    qualname: str        # "merge" or "Interval.overlaps"
+    file: str
+    qualname: str
     start_line: int
     end_line: int
     text: str
@@ -31,7 +22,7 @@ class Chunk:
 
 def _walk(node: ast.AST, prefix: str = ""):
     """Yield (qualname, node) for every function/method, one level of nesting deep."""
-    for child in node.body:  # type: ignore[attr-defined]
+    for child in node.body:
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield f"{prefix}{child.name}", child
         elif isinstance(child, ast.ClassDef):
@@ -58,8 +49,6 @@ def chunk_file(path: Path, repo_root: Path) -> List[Chunk]:
         covered.update(range(start, end + 1))
         out.append(Chunk(rel, qualname, start, end, "\n".join(lines[start - 1:end])))
 
-    # Module-level code (imports, constants, class bodies outside methods) becomes one
-    # chunk so that faults living there are still retrievable rather than invisible.
     leftover = [i for i in range(1, len(lines) + 1) if i not in covered and lines[i - 1].strip()]
     if leftover:
         out.append(Chunk(rel, "<module>", leftover[0], leftover[-1],
@@ -68,13 +57,7 @@ def chunk_file(path: Path, repo_root: Path) -> List[Chunk]:
 
 
 def chunk_repo(repo_root: Path, include_tests: bool = False) -> List[Chunk]:
-    """All chunks in a repo. Tests are excluded by default.
-
-    Excluding tests is deliberate and worth defending: the failing test name appears
-    verbatim in the query, so a test chunk is a trivially perfect lexical match that
-    tells the agent nothing about where the bug lives. Including them would inflate
-    every lexical arm and flatter the baseline.
-    """
+    """All chunks in a repo. Tests are excluded by default."""
     out: List[Chunk] = []
     for p in sorted(repo_root.rglob("*.py")):
         parts = set(p.parts)

@@ -1,14 +1,4 @@
-"""Offline test of the loop -> trace integration.
-
-The model is scripted rather than called, for three reasons: it needs no API key or
-network, it is deterministic, and it lets us assert on a KNOWN agent behaviour
-(read, edit, test, done) instead of whatever a live model happens to do.
-
-The assertions that matter are the publication-safety ones. Reasoning text must
-appear ONLY in the sidecar, never in the published trace, because provider terms on
-redistributing chain-of-thought differ. A test is the only thing that keeps that
-true as the schema evolves.
-"""
+"""Offline test of the loop -> trace integration."""
 from __future__ import annotations
 
 import json
@@ -19,9 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import agent.loop as loop                                    # noqa: E402
-from agent.sandbox import open_workspace                      # noqa: E402
-from tools.corpus import load_faults                         # noqa: E402
+import agent.loop as loop
+from agent.sandbox import open_workspace
+from tools.corpus import load_faults
 
 SECRET_COT = "SENTINEL_REASONING_MUST_NOT_LEAK_INTO_PUBLISHED_TRACE"
 
@@ -84,7 +74,6 @@ def test_trace_layers():
         reasoning = [json.loads(l) for l in (out / "reasoning.jsonl").read_text().splitlines()]
         annots = [json.loads(l) for l in (out / "annotations.jsonl").read_text().splitlines()]
 
-        # Layer 0 -- ground truth known at injection time
         inj = manifest["injection"]
         assert inj["injected"] and inj["file"] == "intervals/core.py"
         assert inj["function"] == "merge"
@@ -94,7 +83,6 @@ def test_trace_layers():
         assert manifest["outcome"]["localised_function"] is True
         assert manifest["harness"]["git_sha"]
 
-        # Layer 1 -- harness-observed, with evidence hashes
         llm = [e for e in events if e["operation"] == "chat"]
         tools = [e for e in events if e["operation"] == "execute_tool"]
         assert llm and tools
@@ -104,21 +92,17 @@ def test_trace_layers():
         assert llm[0]["llm"]["reasoning_source_field"] == "reasoning"
         assert llm[0]["llm"]["reasoning_is_raw_cot"] is True, "gpt-oss returns raw CoT"
 
-        # navigation -- how it moved through the repo
         nav = [e["navigation"] for e in tools]
         assert {n["intent"] for n in nav} >= {"read", "search", "edit", "test"}
         assert nav[0]["novel_paths_count"] == 1
         assert any(n["repeat_paths_count"] >= 1 for n in nav), "revisit must be counted"
         assert manifest["navigation_summary"]["lines_consumed"] > 0
 
-        # Layer 2 -- agent self-report, marked untrusted
         assert claims and all(c["provenance_origin"] == "AGENT_REPORTED" for c in claims)
         assert any(c["claimed_status"] == "done" for c in claims)
 
-        # Layer 3 -- free ground-truth label
         assert any(a["label_source"] == "INJECTED_GROUND_TRUTH" for a in annots)
 
-        # sidecar isolation -- the publication-safety property
         assert reasoning and reasoning[0]["text"] == SECRET_COT
         for name in ("run.json", "events.jsonl", "claims.jsonl", "annotations.jsonl"):
             assert SECRET_COT not in (out / name).read_text(), \

@@ -1,33 +1,5 @@
 #!/usr/bin/env python3
-"""Fault corpus: materialise, and verify that the labels are actually true.
-
-    python3 tools/corpus.py verify            # every fault, full gate
-    python3 tools/corpus.py verify -f ID      # one fault
-    python3 tools/corpus.py materialise ID -o DIR
-
-WHY THE GATE EXISTS
-
-The Raft project had two fault injections (BUG-4, BUG-5) that silently did not
-inject -- the suite reported green because nothing was actually being tested.
-The lesson was "verify your verification", and it applies with more force here:
-every downstream metric in this project is defined relative to a fault label.
-If a fault does not break the tests it claims to break, or breaks tests it does
-not claim, then localisation accuracy is measured against fiction.
-
-So a fault is only valid when ALL of the following hold:
-
-  1. clean checkout        -> every test passes
-  2. injected checkout     -> the failing set is EXACTLY expected_failing_tests
-  3. the anchor text appears exactly once in the target file
-
-Condition 2 is a set equality, not a subset. A fault that breaks more than it
-claims has bad localisation ground truth, which is just as corrosive as one
-that breaks nothing.
-
-Injection is copy-on-write: repos under corpus/repos/ are never mutated. A run
-materialises a fresh copy into a scratch dir and patches that, so there is no
-revert step to get wrong.
-"""
+"""Fault corpus: materialise, and verify that the labels are actually true."""
 import argparse
 import json
 import re
@@ -80,16 +52,7 @@ def materialise(fault, dest: Path) -> Path:
 
 
 def run_pytest(cwd: Path, timeout: float = None):
-    """Return (all_passed, sorted failing node ids).
-
-    `timeout` matters for GENERATED faults and not for hand-written ones. Mutation
-    operators can produce non-terminating programs -- turning a `break` into a
-    `continue` inside a while loop is a one-token edit that makes the suite hang
-    forever. That mutant is neither "equivalent" nor "killed"; it is a third outcome
-    the mutation literature's usual framing does not name. Screening must bound it
-    or the corpus build never finishes. On timeout we return the sentinel
-    ["<timeout>"], which the caller discards.
-    """
+    """Return (all_passed, sorted failing node ids)."""
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "--no-header", "-rf", "--tb=no",
@@ -176,7 +139,7 @@ def main():
             faults = [f for f in faults if f["id"].startswith(a.prefix)]
         if getattr(a, "sample", 0):
             import random
-            random.Random(0).shuffle(faults)          # deterministic sample
+            random.Random(0).shuffle(faults)
             faults = sorted(faults[:a.sample], key=lambda f: f["id"])
         sys.exit(1 if verify(faults) else 0)
 

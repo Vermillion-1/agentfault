@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""The sweep: every retrieval arm x every observation level x every fault.
-
-    python3 runner/sweep.py                 # full grid -> results/retrieval_raw.csv
-    python3 runner/sweep.py --arms A2_bm25 A5_embed
-
-WHAT IS AND IS NOT VARIED
-
-Held fixed across every cell: the corpus, the chunker, the fault set, the gold
-labels, and k. Varied: the ranking function (arm) and the query (observation
-level). Any delta is therefore attributable to one of those two axes and nothing
-else -- the property most retrieval comparisons lack.
-
-ON SEEDS
-
-SPEC.md requires >=3 seeds and bootstrap CIs. Seeds do not apply here: every arm
-is deterministic given its input, so repeated runs are byte-identical and a seed
-axis would be theatre. The real variance is ACROSS FAULTS, so CIs are bootstrapped
-over the fault population instead. When the extrinsic (agent) arm lands, that one
-IS stochastic and does need seeds.
-
-Raw per-cell rows are committed as CSV. None of the papers in
-../ai-harness-research/sources/ do this.
-"""
+"""The sweep: every retrieval arm x every observation level x every fault."""
 from __future__ import annotations
 
 import argparse
@@ -36,11 +14,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from retrieval import query as Q                    # noqa: E402
-from retrieval.arms import ARMS                     # noqa: E402
-from retrieval.chunk import chunk_repo              # noqa: E402
-from retrieval.metrics import score                 # noqa: E402
-from tools.corpus import FAULTS, load_faults, materialise   # noqa: E402
+from retrieval import query as Q
+from retrieval.arms import ARMS
+from retrieval.chunk import chunk_repo
+from retrieval.metrics import score
+from tools.corpus import FAULTS, load_faults, materialise
 
 RESULTS = ROOT / "results"
 
@@ -54,11 +32,6 @@ def main() -> int:
                     help="also sweep the 211 mechanically generated faults")
     a = ap.parse_args()
 
-    # Default to the 12 hand-written faults, the set results/ was produced from.
-    # The generated faults arrived the day after that sweep, and load_faults()
-    # picks them up too, so without this a "replay" silently became a new
-    # 223-fault sweep: on 2026-11-17 one made ~270 paced live Cohere calls
-    # before the network dropped. Sweeping them is a decision, not a default.
     faults = [f for f in load_faults()
               if a.generated or f["_path"].parent == FAULTS]
     rows = []
@@ -75,8 +48,6 @@ def main() -> int:
                 print(f"    SKIP {f['id']}: gold {gold_uid} is not a chunk")
                 continue
 
-            # Pre-warm hosted embeddings in ONE batched call per fault instead of
-            # one per observation level. Quota control, not speed.
             if any(x.startswith("A7") for x in a.arms):
                 from retrieval.providers import embed_into_memo
                 embed_into_memo([c.text for c in chunks], "search_document")
@@ -113,7 +84,7 @@ def main() -> int:
     try:
         shown = out.relative_to(ROOT)
     except ValueError:
-        shown = out          # an --out outside the repo is legitimate, e.g. a scratch replay
+        shown = out
     print(f"\n  {len(rows)} rows -> {shown}\n")
     return 0
 

@@ -1,15 +1,4 @@
-"""Offline tests for the things Phase D's numbers depend on.
-
-Each test pins one way the sweep could report a wrong number without failing:
-
-  seeds replaying one cached response   -> zero variance that is not real
-  a claim checked only on visible tests -> a "fix" that fixed nothing
-  no way to stop except `done`          -> giving up counted as running out of steps
-  a dead provider                       -> a grid full of error rows
-  a killed sweep                        -> cells paid for twice, or lost
-
-The model is scripted (agent/fake.py), so nothing here needs a key or the network.
-"""
+"""Offline tests for the things Phase D's numbers depend on."""
 from __future__ import annotations
 
 import csv
@@ -24,13 +13,13 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import agent.loop as loop                                    # noqa: E402
-import runner.agent_sweep as sweep                           # noqa: E402
-from agent.fake import BEHAVIOURS, failing_model, scripted_model  # noqa: E402
-from retrieval import providers                              # noqa: E402
-from agent.sandbox import open_workspace                      # noqa: E402
-from runner.report import agent_report                       # noqa: E402
-from tools.corpus import REPOS, load_faults                  # noqa: E402
+import agent.loop as loop
+import runner.agent_sweep as sweep
+from agent.fake import BEHAVIOURS, failing_model, scripted_model
+from retrieval import providers
+from agent.sandbox import open_workspace
+from runner.report import agent_report
+from tools.corpus import REPOS, load_faults
 
 FAULT_ID = "intervals-001"
 
@@ -53,23 +42,19 @@ def _episode(tmp: Path, model_fn, trace: bool = False, fault=None, **kw):
     return res, out
 
 
-# ------------------------------------------------------------------ seeds
-
 def test_seed_is_part_of_the_cache_key():
     msgs = [{"role": "user", "content": "x"}]
     tools = loop.TOOL_SCHEMAS
-    key = lambda **kw: providers._key(providers.chat_cache_payload(  # noqa: E731
+    key = lambda **kw: providers._key(providers.chat_cache_payload(
         "groq", "m", 0.7, 100, msgs, tools, **kw))
 
     assert key(seed=1) != key(seed=2), "two seeds must never share a cached response"
     assert key(seed=1) == key(seed=1), "and one seed must replay itself"
 
-    # A changed tool schema is a different prompt, so it must miss the cache too.
     other = providers._key(providers.chat_cache_payload(
         "groq", "m", 0.7, 100, msgs, tools[:-1], 1))
     assert other != key(seed=1)
 
-    # Calls made before seeds existed keep their old key, so those entries replay.
     legacy = providers._key(("groq", "m", 0.7, 100, msgs, True))
     assert key(seed=None) == legacy
 
@@ -92,8 +77,6 @@ def test_episode_passes_its_seed_to_the_model():
         loop.chat = real
     assert seen and set(seen) == {7}
 
-
-# --------------------------------------------------------------- outcomes
 
 def test_each_scripted_behaviour_gets_its_outcome():
     want = {"fix": "fixed", "give_up": "gave_up", "wrong_done": "silent_failure",
@@ -126,7 +109,6 @@ def test_the_step_budget_is_the_cars_and_stall_uses_all_of_it():
 
 def test_a_full_context_ends_the_episode_cleanly():
     with tempfile.TemporaryDirectory() as td:
-        # The scripted model reports 100 prompt tokens per call.
         res, _ = _episode(Path(td), scripted_model(_fault(), "stall"),
                           car=loop.CarSpec(context_tokens=100, context_frac=0.5))
     assert (res.outcome, res.stop_reason, res.steps, res.error) == ("exhausted", "context", 1, "")
@@ -154,15 +136,11 @@ def test_classify_outcome_covers_the_cases_no_script_reaches():
                 claimed_done=True, gave_up=False)
     assert c(**base) == "fixed"
     assert c(**{**base, "localised_fn": False}) == "fixed_elsewhere"
-    # Every test decides a fix; the agent's own tests decide only what it claimed.
     assert c(**{**base, "all_green": False}) == "false_success"
     assert c(**{**base, "all_green": False, "claimed_done": False}) == "visible_only"
     assert c(**{**base, "all_green": False, "visible_green": False}) == "silent_failure"
-    # A provider error outranks everything: a half-run episode is not a result.
     assert c(**{**base, "error": True}) == "error"
 
-
-# ---------------------------------------------------------------- provider
 
 def test_http_status_classification():
     k = providers.classify_status
@@ -208,8 +186,6 @@ def test_provider_error_is_recorded_with_its_kind():
         res, _ = _episode(Path(td), failing_model("auth", 403))
     assert res.outcome == "error" and res.error_kind == "auth"
 
-
-# ------------------------------------------------------------------- sweep
 
 def _sweep(tmp: Path, *extra):
     return sweep.main(["--fake", "--faults", FAULT_ID, "--levels", "L0", "L3",
@@ -261,13 +237,11 @@ def test_sweep_resumes_and_seeds_differ():
         by_seed = {r["seed"]: r["outcome"] for r in rows if r["level"] == "L3"}
         assert by_seed == {"0": "fixed", "1": "gave_up"}
 
-        # Re-running must skip all four: the trace files are not rewritten.
         stamp = {p: p.stat().st_mtime_ns for p in (tmp / "traces").rglob("run.json")}
         assert len(stamp) == 4
         assert _sweep(tmp, "--seeds", "0", "1") == 0
         assert stamp == {p: p.stat().st_mtime_ns for p in stamp}
 
-        # Widening the grid runs only the new cells.
         assert _sweep(tmp, "--seeds", "0", "1", "2") == 0
         assert len(_rows(tmp)) == 6
 
@@ -288,12 +262,9 @@ def test_repeats_are_separate_rows_and_feed_the_noise_floor():
         agent_report(tmp / "raw.csv", md)
         text = md.read_text()
         assert "Noise floor" in text
-        # The headline counts rep 0 only: 2 episodes, not 4.
         assert "2 episodes" in text
-        # The scripted model is deterministic, so no repeat disagrees...
         assert _noise_row(text, "L3")[-2:] == ["0", "0"]
 
-        # ...and a repeat that DOES disagree is counted.
         for r in rows:
             if r["level"] == "L3" and r["rep"] == "1":
                 r["outcome"], r["fix_rate"] = "gave_up", "0"
@@ -320,7 +291,6 @@ def test_a_cell_with_too_many_dead_runs_is_marked():
         tmp = Path(td)
         assert _sweep(tmp, "--seeds", "0", "1", "2", "3", "4") == 0
         rows = _rows(tmp)
-        # One of five L0 episodes errored: 20%, over the 10% bar. L3 is untouched.
         victim = [r for r in rows if r["level"] == "L0"][0]
         victim["error"], victim["error_kind"], victim["outcome"] = "boom", "server", "error"
         _write(tmp / "raw.csv", rows)
@@ -336,19 +306,17 @@ def test_a_cell_with_too_many_dead_runs_is_marked():
 
 def test_paired_interval_sees_a_difference_unpaired_intervals_hide():
     from retrieval.metrics import bootstrap_ci, paired_bootstrap_ci
-    # Faults vary a lot in difficulty, and B beats A by 0.1 on every single one.
     a = [0.0, 0.2, 0.4, 0.6, 0.8]
     b = [x + 0.1 for x in a]
     lo, hi = paired_bootstrap_ci(b, a)
     assert abs(lo - 0.1) < 1e-9 and abs(hi - 0.1) < 1e-9, "every fault agrees: no spread"
-    # Unpaired, the two columns overlap almost entirely.
     assert bootstrap_ci(a)[1] > bootstrap_ci(b)[0]
 
 
 def test_cache_off_neither_reads_nor_writes(monkeypatch):
     with tempfile.TemporaryDirectory() as td:
         monkeypatch.setattr(providers, "CACHE", Path(td))
-        monkeypatch.setattr(providers, "_RATE", {})          # no pacing sleeps
+        monkeypatch.setattr(providers, "_RATE", {})
         monkeypatch.delenv("AGENTFAULT_CHAT_URL", raising=False)
         monkeypatch.setenv("GROQ_API_KEY", "not-a-real-key")
         answer = {"n": 0}
@@ -363,8 +331,8 @@ def test_cache_off_neither_reads_nor_writes(monkeypatch):
         assert providers.chat(msgs, seed=0, cache=False)["id"] == "r1"
         assert not list(Path(td).iterdir()), "cache off must not write"
 
-        assert providers.chat(msgs, seed=0)["id"] == "r2"            # stored
-        assert providers.chat(msgs, seed=0)["id"] == "r2"            # replayed
+        assert providers.chat(msgs, seed=0)["id"] == "r2"
+        assert providers.chat(msgs, seed=0)["id"] == "r2"
         assert providers.LAST_CALL["cached"] is True
         assert providers.chat(msgs, seed=0, cache=False)["id"] == "r3", \
             "cache off must not read the stored response"
@@ -388,12 +356,10 @@ def test_cache_only_mode_refuses_live_calls(monkeypatch):
 def test_sweep_stops_on_an_error_streak_then_recovers():
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        # Eight cells, every call failing: it must stop after two, not run all eight.
         rc = _sweep(tmp, "--seeds", "0", "1", "2", "3", "--fake-fail", "--max-errors", "2")
         assert rc == 2
         assert len(_rows(tmp)) == 2 and all(r["outcome"] == "error" for r in _rows(tmp))
 
-        # Provider back: the same command re-runs the errored cells and finishes.
         assert _sweep(tmp, "--seeds", "0", "1", "2", "3") == 0
         rows = _rows(tmp)
         assert len(rows) == 8 and not any(r["error"] for r in rows)

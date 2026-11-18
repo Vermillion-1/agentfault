@@ -1,16 +1,4 @@
-"""Hosted retrieval providers, with on-disk caching.
-
-Caching is not an optimisation here, it is a quota control. The Cohere trial key
-allows 1,000 calls per MONTH; a careless re-run of the sweep would spend a
-meaningful slice of that on identical inputs. Every response is keyed by a hash of
-(provider, model, input_type, texts) and replayed from results/.cache/ thereafter,
-so repeated sweeps cost zero calls and stay byte-identical.
-
-Batching matters for the same reason: Cohere embed accepts many texts per call, so
-the whole 20-chunk corpus is two calls rather than twenty.
-
-Keys come from tools.env and are never logged.
-"""
+"""Hosted retrieval providers, with on-disk caching."""
 from __future__ import annotations
 
 import hashlib
@@ -27,27 +15,16 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from tools.env import get  # noqa: E402
+from tools.env import get
 
 CACHE = ROOT / "results" / ".cache"
 CALLS = {"cohere_embed": 0, "cohere_rerank": 0, "groq_chat": 0}
 
-# The exact request body and wall time of the most recent groq_chat, for provenance.
-# The trace layer must record what was ACTUALLY SENT, not a reconstruction -- the
-# whole point of harness-owned provenance is that it is not re-derived from anything
-# the agent could influence. `cached` is recorded because a replayed response has a
-# real hash but a meaningless duration, and conflating the two would quietly corrupt
-# any latency analysis. Single-threaded by design; do not read this across threads.
 LAST_CALL: dict = {}
 
-# Trial-key ceilings: 5/min embed, 10/min rerank. Exceeding them returns 429 and
-# wastes quota on a retry, so calls are paced rather than retried.
 _RATE = {"cohere_embed": 60.0 / 5, "cohere_rerank": 60.0 / 10, "groq_chat": 60.0 / 28}
 _LAST: dict = {}
 
-# Groq's binding constraint is TOKENS per minute, not requests: gpt-oss-20b allows
-# ~8k TPM on the free tier and a single debugging episode costs ~8.8k, so request
-# pacing alone still 429s. This tracks a rolling token window and waits it out.
 GROQ_TPM = 8000
 _TOK_WINDOW: list = []
 
@@ -67,8 +44,6 @@ def note_tokens(n: int) -> None:
     import time
     _TOK_WINDOW.append((time.monotonic(), n))
 
-# Text -> vector memo, so an embedding is paid for once per process regardless of
-# how many observation levels reuse it.
 _TEXT_VEC: dict = {}
 
 
@@ -96,11 +71,6 @@ def _cached(name: str, payload, fn):
     p = CACHE / f"{name}-{_key(payload)}.json"
     if p.exists():
         return json.loads(p.read_text())
-    # A replay check must never spend quota. On 2026-11-17 one did: the L3 cache
-    # entries had been keyed on tracebacks holding raw heap addresses, so none of
-    # them could ever match again, and the "zero-call" replay quietly made ~280
-    # live Cohere calls against a 1,000-a-month trial key. With this set, a miss
-    # is an error that names itself.
     if os.environ.get("AGENTFAULT_CACHE_ONLY"):
         raise CacheMiss(f"{name}: no cached response for this input and "
                         f"AGENTFAULT_CACHE_ONLY is set ({p.name})")
@@ -122,8 +92,6 @@ def _post_json(url: str, body: dict, key: str) -> dict:
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"{url} -> HTTP {e.code}: {e.read()[:300].decode(errors='replace')}")
 
-
-# ------------------------------------------------------------------ cohere
 
 def cohere_embed(texts: Sequence[str], input_type: str,
                  model: str = "embed-english-v3.0") -> List[List[float]]:
@@ -148,11 +116,7 @@ def cohere_rerank(query: str, documents: Sequence[str],
 
 def embed_into_memo(texts: Sequence[str], input_type: str,
                     model: str = "embed-english-v3.0") -> None:
-    """Embed every text not already memoised, in ONE batched call.
-
-    Batching is the whole quota strategy: the 20-chunk corpus plus all four
-    observation-level queries for a fault is two calls, not twenty-four.
-    """
+    """Embed every text not already memoised, in ONE batched call."""
     todo = [t for t in dict.fromkeys(texts) if (input_type, t) not in _TEXT_VEC]
     if not todo:
         return
@@ -167,33 +131,16 @@ def memo_vec(text: str, input_type: str) -> List[float]:
     return _TEXT_VEC[(input_type, text)]
 
 
-# -------------------------------------------------------------------- chat
-
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# How long to sit out a 429, and how many times. Groq's limit is a rolling
-# one-minute token window, so a few 20-second waits always outlast it.
 RATE_LIMIT_WAIT_S = 20.0
 MAX_RATE_LIMIT_WAITS = 4
 MAX_SERVER_RETRIES = 2
-_sleep = _time.sleep            # indirection so tests never actually sleep
+_sleep = _time.sleep
 
 
 class ProviderError(RuntimeError):
-    """A chat call that failed, tagged with WHY it failed.
-
-    The sweep must react differently to each kind, and a bare RuntimeError cannot
-    say which one happened:
-
-      rate_limit  429. Wait and retry -- already done here; raised only once the
-                  waits are used up.
-      auth        401 / 403. Retrying cannot help. On 2026-09-29 Groq returned 403
-                  for a full day; a sweep that kept going would have written every
-                  remaining cell as an error row. The runner stops on this.
-      server      5xx. Retried a little here, then raised.
-      transport   curl itself failed, or the body was not JSON.
-      client      any other 4xx. A malformed request is our bug; never retried.
-    """
+    """A chat call that failed, tagged with WHY it failed."""
 
     def __init__(self, kind: str, status: int, detail: str):
         super().__init__(f"{kind} (HTTP {status}): {detail[:400]}")
@@ -216,14 +163,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def configure(spec: str) -> None:
-    """Point chat() at one provider for this process, by name instead of three
-    environment variables:
-
-        groq                    Groq directly (free tier: 8k tokens/min, 413 above it)
-        openrouter:<host>       OpenRouter pinned to one host, e.g. openrouter:akashml/fp4
-        http://...              any OpenAI-compatible server, e.g. a vLLM over a tunnel
-
-    Clears what an earlier configuration set, so two specs can never mix."""
+    """Point chat() at one provider for this process, by name instead of three"""
     for k in ("AGENTFAULT_CHAT_URL", "AGENTFAULT_CHAT_KEY_ENV", "AGENTFAULT_CHAT_UPSTREAM"):
         os.environ.pop(k, None)
     if spec == "groq":
@@ -239,23 +179,7 @@ def configure(spec: str) -> None:
 
 
 def chat_endpoint() -> tuple:
-    """(url, api key or None, provider label) for the chat model.
-
-    Defaults to Groq. Any OpenAI-compatible server works instead -- a local vLLM,
-    for example -- by setting two environment variables:
-
-        AGENTFAULT_CHAT_URL      e.g. http://localhost:8000/v1/chat/completions
-        AGENTFAULT_CHAT_KEY_ENV  NAME of the variable holding its key (optional)
-
-    The Groq key is only ever sent to Groq. A custom URL gets a key only when
-    AGENTFAULT_CHAT_KEY_ENV names one, so pointing the sweep at another server
-    cannot leak the Groq key to it.
-
-    A router such as OpenRouter serves one model from many hosts and picks one per
-    call, so a single cell could mix serving stacks. AGENTFAULT_CHAT_UPSTREAM pins
-    one host (see chat()), and the label names it, so the CSV's provider column and
-    the cache key both say which host answered.
-    """
+    """(url, api key or None, provider label) for the chat model."""
     url = os.environ.get("AGENTFAULT_CHAT_URL") or GROQ_URL
     if url == GROQ_URL:
         return url, get("GROQ_API_KEY"), "groq"
@@ -269,19 +193,7 @@ def chat_endpoint() -> tuple:
 def chat_cache_payload(provider: str, model: str, temperature: float, max_tokens: int,
                        messages: List[dict], tools: "List[dict] | None",
                        seed: "int | None"):
-    """What a cached chat response is keyed by.
-
-    Before 2026-11-17 the key had no seed in it. Seeds 1..9 all run at temperature
-    0.7 with the same opening prompt, so every one of them would have replayed the
-    FIRST seed's cached response and the sweep would have reported zero variance
-    across seeds -- ten copies of one episode. The seed is in the key now.
-
-    Tools are keyed by a hash of the schemas rather than `bool(tools)`: adding or
-    rewording a tool changes what the model sees, so it must not hit an old entry.
-
-    A call with no seed on Groq keeps the old key shape, so the responses cached
-    before this change still replay.
-    """
+    """What a cached chat response is keyed by."""
     if seed is None and provider == "groq":
         return ("groq", model, temperature, max_tokens, messages, bool(tools))
     tools_sha = hashlib.sha256(
@@ -290,11 +202,7 @@ def chat_cache_payload(provider: str, model: str, temperature: float, max_tokens
 
 
 def _curl_chat(url: str, key: "str | None", body: dict) -> tuple:
-    """One HTTP attempt. Returns (status, body text); status 0 means curl failed.
-
-    Groq sits behind Cloudflare, which rejects urllib's TLS fingerprint with
-    error 1010. curl carries a conventional fingerprint and is accepted, so the
-    transport here is deliberately curl rather than the stdlib."""
+    """One HTTP attempt. Returns (status, body text); status 0 means curl failed."""
     cmd = ["curl", "-s", "--max-time", "120", "-w", "\n%{http_code}",
            "-H", "Content-Type: application/json",
            "-H", "User-Agent: curl/8.4.0"]
@@ -312,12 +220,7 @@ def chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
          temperature: float = 0.0, max_tokens: int = 1024,
          tools: "List[dict] | None" = None, seed: "int | None" = None,
          cache: bool = True) -> dict:
-    """One chat completion against the configured endpoint, cached on disk.
-
-    `cache=False` neither reads nor writes the cache. It exists for one purpose:
-    measuring the noise floor. A cached seed-0 response replays forever, which
-    makes temperature 0 LOOK perfectly repeatable whether or not the provider
-    really is. Only a second call that actually goes out can tell."""
+    """One chat completion against the configured endpoint, cached on disk."""
     url, key, provider = chat_endpoint()
     body = {"model": model, "messages": messages,
             "temperature": temperature, "max_tokens": max_tokens}
@@ -328,9 +231,6 @@ def chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
         body["seed"] = seed
     upstream = os.environ.get("AGENTFAULT_CHAT_UPSTREAM")
     if upstream and provider != "groq":
-        # OpenRouter's routing field. No fallbacks: a failed call is an error row,
-        # never a silent answer from another host. require_parameters: a host that
-        # would drop `seed` or `tools` is refused rather than used.
         body["provider"] = {"order": [upstream], "allow_fallbacks": False,
                             "require_parameters": True}
 
@@ -339,7 +239,7 @@ def chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
         waits = retries = 0
         while True:
             if provider == "groq":
-                _tpm_wait()          # the token window is Groq's limit, not a local server's
+                _tpm_wait()
             status, text = _curl_chat(url, key, body)
             if status == 200:
                 try:
@@ -376,4 +276,4 @@ def chat(messages: List[dict], model: str = "openai/gpt-oss-20b",
     return out
 
 
-groq_chat = chat    # the old name, kept so existing callers keep working
+groq_chat = chat

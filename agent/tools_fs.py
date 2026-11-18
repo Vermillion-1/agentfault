@@ -1,21 +1,4 @@
-"""The agent's file tools: list, read, search, edit. Standard library only.
-
-They act on one directory, the agent's workspace, and it holds source files only:
-the tests are never copied in (agent/sandbox.py). So no tool can show a test,
-whatever path the agent guesses, because there is no test file to find.
-
-The same functions run in-process for offline tests and inside the Docker
-workspace container for live runs, invoked as a script:
-
-    python tools_fs.py <tool> <root>    # JSON args on stdin, JSON result on stdout
-
-Each call returns {"text": what the agent sees, "seen": [[rel, first, last], ...],
-"edited": [rel, line] or null, "policy": [violation, ...] or null}; the episode
-turns those into its own bookkeeping, so these functions keep no state.
-
-`edit` refuses any edit that agent/policy.py forbids. The agent is told only that
-edits may change program logic; what was attempted goes to `policy`, for the record.
-"""
+"""The agent's file tools: list, read, search, edit. Standard library only."""
 from __future__ import annotations
 
 import json
@@ -25,7 +8,7 @@ from pathlib import Path
 
 try:
     from agent.policy import violations
-except ImportError:            # run as a script in the container, next to policy.py
+except ImportError:
     from policy import violations
 
 MAX_FILE_CHARS = 6000
@@ -72,11 +55,8 @@ def t_search(root: Path, a: dict) -> dict:
 
 def t_edit(root: Path, a: dict) -> dict:
     p = _inside(root, a.get("path", ""))
-    # Python source only: a config file such as pyproject.toml configures pytest.
     if not p or p.suffix != ".py":
         return {"text": f"no such file: {a.get('path', '')}"}
-    # Normalised, so "./intervals/core.py" and "intervals/core.py" count as the
-    # same file when the edit is later compared with the fault's location.
     rel = str(p.relative_to(root.resolve()))
     old, new = a.get("old", ""), a.get("new", "")
     text = p.read_text()

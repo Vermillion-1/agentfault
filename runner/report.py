@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate results/REPORT.md from results/retrieval_raw.csv, and
-results/AGENT_REPORT.md from results/agent_raw.csv once the agent sweep has run.
-
-The report is derived, never hand-written, so it cannot drift from the data.
-Arm comparisons are reported WITHIN an observation level: pooling across levels
-would mix L0's near-zero scores into every arm's distribution, inflating variance
-and flattering nothing in particular.
-"""
+"""Regenerate results/REPORT.md from results/retrieval_raw.csv, and"""
 from __future__ import annotations
 
 import csv
@@ -16,8 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from retrieval.metrics import bootstrap_ci  # noqa: E402
-from runner.agent_report import AGENT_RAW, agent_report  # noqa: E402
+from retrieval.metrics import bootstrap_ci
+from runner.agent_report import AGENT_RAW, agent_report
 
 RAW = ROOT / "results" / "retrieval_raw.csv"
 OUT = ROOT / "results" / "REPORT.md"
@@ -45,7 +38,6 @@ def retrieval_report() -> None:
       "`recall_fn@k` asks whether that exact function appears in the top k. "
       "CIs are percentile bootstrap over the fault population.\n")
 
-    # ---- headline: observation level
     A("\n## 1. Observation level dominates retrieval method\n")
     A("Pooled over all ranking arms. This is the largest effect in the study.\n")
     A("| Level | what the query contains | MRR (fn) | 95% CI | recall_fn@1 | recall_fn@3 |")
@@ -60,7 +52,6 @@ def retrieval_report() -> None:
           f"{mean([float(r['recall_fn@1']) for r in s]):.2f} | "
           f"{mean([float(r['recall_fn@3']) for r in s]):.2f} |")
 
-    # ---- arms, within level
     for lv in ("L2", "L3"):
         if lv not in levels:
             continue
@@ -79,7 +70,6 @@ def retrieval_report() -> None:
               f"{mean([float(r['recall_file@3']) for r in s]):.2f} | "
               f"{lat[len(lat)//2]:.1f} |")
 
-    # ---- grid
     A("\n## 3. Arm x level grid — recall_fn@3\n")
     A("| Arm | " + " | ".join(levels) + " |")
     A("|---" * (len(levels) + 1) + "|")
@@ -88,7 +78,6 @@ def retrieval_report() -> None:
                  for lv in levels]
         A(f"| `{a}` | " + " | ".join(cells) + " |")
 
-    # ---- category + blast radius
     A("\n## 4. By fault category (best arm per level, L2)\n")
     cats = sorted({r["category"] for r in rows})
     A("| Category | n faults | mean MRR (fn) @ L2 |")

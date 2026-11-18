@@ -1,13 +1,4 @@
-"""Retrieval arms. Each ranks the same chunks against the same query.
-
-Everything except the ranking function is held fixed -- same corpus, same chunker,
-same query, same k. Causal attribution of any measured delta is therefore
-unambiguous, which is the property most retrieval comparisons quietly lack because
-they change the index, the chunker and the query together.
-
-Arms are deliberately boring. Novel retrieval is not the point; measuring which
-cheap thing actually works is.
-"""
+"""Retrieval arms. Each ranks the same chunks against the same query."""
 from __future__ import annotations
 
 import math
@@ -33,8 +24,6 @@ def tokenize(text: str) -> List[str]:
                 out.append(sub.lower())
     return out
 
-
-# --------------------------------------------------------------------- arms
 
 def arm_none(chunks: Sequence[Chunk], query: str) -> List[str]:
     """A0 baseline: corpus order, no ranking at all. What unranked grep gives you."""
@@ -93,13 +82,11 @@ def arm_embed(chunks: Sequence[Chunk], query: str) -> List[str]:
     if "m" not in _EMBED_CACHE:
         _EMBED_CACHE["m"] = SentenceTransformer("all-MiniLM-L6-v2")
     m = _EMBED_CACHE["m"]
-    # Chunk embeddings are identical across observation levels, so encoding them once
-    # per corpus turns a 4x cost into a 1x cost.
     key = hash(tuple(c.text for c in chunks))
     if key not in _EMBED_CACHE:
-        _EMBED_CACHE[key] = m.encode([c.text for c in chunks], show_progress_bar=False)  # type: ignore[attr-defined]
+        _EMBED_CACHE[key] = m.encode([c.text for c in chunks], show_progress_bar=False)
     E = _EMBED_CACHE[key]
-    q = m.encode([query], show_progress_bar=False)                      # type: ignore[attr-defined]
+    q = m.encode([query], show_progress_bar=False)
     sims = cosine_similarity(q, E)[0]
     order = sorted(range(len(chunks)), key=lambda i: (-sims[i], chunks[i].uid))
     return [chunks[i].uid for i in order]
@@ -115,12 +102,7 @@ def rrf(rankings: Sequence[List[str]], k: int = 60) -> List[str]:
 
 
 def arm_hybrid(chunks: Sequence[Chunk], query: str) -> List[str]:
-    """A6: RRF over BM25 + embeddings -- lexical and semantic fused.
-
-    ai-harness-research/README.md records the finding this tests: on symptom->root-cause
-    retrieval a structural retriever beat dense by 3.3x MRR, dense won on aggregate, and
-    RRF fusion beat both by +18.1%. Whether that holds on injected faults is the question.
-    """
+    """A6: RRF over BM25 + embeddings -- lexical and semantic fused."""
     return rrf([arm_bm25(chunks, query), arm_embed(chunks, query)])
 
 
@@ -141,14 +123,8 @@ ARMS: Dict[str, Callable[[Sequence[Chunk], str], List[str]]] = {
 }
 
 
-# ------------------------------------------------------- hosted (Cohere) arms
-
 def arm_cohere_embed(chunks: Sequence[Chunk], query: str) -> List[str]:
-    """A7: Cohere Embed v3, asymmetric search_document / search_query encoding.
-
-    The asymmetry is the point of a retrieval-tuned embedder and is what separates
-    it from encoding both sides with one generic sentence model (A5).
-    """
+    """A7: Cohere Embed v3, asymmetric search_document / search_query encoding."""
     from sklearn.metrics.pairwise import cosine_similarity
 
     from .providers import embed_into_memo, memo_vec
@@ -161,12 +137,7 @@ def arm_cohere_embed(chunks: Sequence[Chunk], query: str) -> List[str]:
 
 
 def arm_cohere_rerank(chunks: Sequence[Chunk], query: str) -> List[str]:
-    """A8: Cohere Rerank 3.5, a cross-encoder scoring query against each chunk.
-
-    Cross-encoders see both sides together instead of comparing two independently
-    produced vectors, which is why they usually beat bi-encoder retrieval -- and why
-    they cost a call per query rather than a cached vector.
-    """
+    """A8: Cohere Rerank 3.5, a cross-encoder scoring query against each chunk."""
     from .providers import cohere_rerank
     order = cohere_rerank(query, [c.text for c in chunks])
     return [chunks[i].uid for i in order]

@@ -1,13 +1,4 @@
-"""Read secrets from .env without ever printing them.
-
-The file is gitignored and is the only place keys live. Nothing in this module
-returns a key to stdout; `describe()` reports presence and length only, which is
-enough to debug a bad paste without the value entering a log, a terminal
-scrollback, or a transcript.
-
-Accepts the loose formats people actually write:
-    name = 'value'      name="value"      export NAME=value      NAME=value
-"""
+"""Read secrets from .env without ever printing them."""
 from __future__ import annotations
 
 import os
@@ -17,7 +8,6 @@ from typing import Dict, Optional
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
-# Accept the several names the same secret gets written under.
 ALIASES = {
     "GROQ_API_KEY":   ("groq_key", "groq_api_key", "GROQ_KEY", "GROQ_API_KEY"),
     "COHERE_API_KEY": ("cohere_trail_key", "cohere_trial_key", "cohere_key",
@@ -36,7 +26,6 @@ def _parse(path: Path) -> Dict[str, str]:
         return out
     for raw in path.read_text().splitlines():
         line = raw.split("#", 1)[0] if raw.lstrip().startswith("#") else raw
-        # allow several assignments separated by ';'
         for part in line.split(";"):
             m = _LINE.match(part)
             if not m:

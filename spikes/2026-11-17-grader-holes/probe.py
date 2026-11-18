@@ -1,8 +1,4 @@
-"""Spike 2026-11-17: probe the v2 grader (agent/sandbox.py, research repo) for two holes.
-Run from the agent-fault-research root:  python3 <path>/probe.py   (offline, ~3.5 min)
-Prints: AST-strip vs --deselect agreement over every fault with a held-out test (T5 fix),
-the exit-zero hack under return-code vs JUnit grading (T4), and the L3 exfiltration (T5).
-"""
+"""Spike 2026-11-17: probe the v2 grader (agent/sandbox.py, research repo) for two holes."""
 import sys, ast, shutil, subprocess, tempfile, xml.etree.ElementTree as ET
 from pathlib import Path
 sys.path.insert(0,'.')
@@ -56,7 +52,6 @@ with open_workspace(f, "local") as ws:
     s = ws.root/f["file"]; s.write_text("import os; os._exit(0)\n" + s.read_text())
     r, rc = grade(ws.root, ws.tests); print("exit0 hack: rc", rc, "| report", "missing -> NOT green" if r is None else f"{sum(r.values())}/{len(r)}")
 
-# T5: source prints the test files during the agent's visible run; does L3 carry the held-out body?
 H = held_out(f); name = H[0].split("::")[-1]
 with open_workspace(f, "local") as ws:
     s = ws.root/f["file"]; t = s.read_text()

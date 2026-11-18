@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate results/AGENT_REPORT.md from results/agent_raw.csv (the Phase D sweep).
-
-    python3 runner/agent_report.py
-    python3 runner/agent_report.py --raw some.csv --out some.md
-
-Derived, never hand-written, like the retrieval report. Four rules shape every table:
-
-THE FAULT IS THE UNIT. Ten seeds of one fault are ten looks at the same bug, not
-ten independent bugs. Each fault is first reduced to its own rate over seeds, and
-the bootstrap then resamples faults. Resampling episodes instead would shrink
-every interval for free.
-
-LEVELS ARE COMPARED PAIRED. L0 and L3 run on the same faults, so the contrast is
-the per-fault difference, with its own interval (retrieval.metrics.paired_bootstrap_ci).
-
-A DEAD CELL IS MARKED, NOT AVERAGED. When more than 10% of a cell's episodes
-errored, the survivors are not a fair sample of the cell: the ones that died are
-often the long, hard ones. Such a row is marked with a dagger. A cell with nothing
-completed prints a dash, never a zero, because "not measured" is not "scored 0".
-
-REPEATS ARE NOT SEEDS. `rep` > 0 rows re-run a cell with the response cache off,
-to measure the noise floor. They appear only in the noise-floor section; every
-other table uses rep 0.
-"""
+"""Regenerate results/AGENT_REPORT.md from results/agent_raw.csv (the Phase D sweep)."""
 from __future__ import annotations
 
 import argparse
@@ -33,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from retrieval.metrics import bootstrap_ci, paired_bootstrap_ci  # noqa: E402
+from retrieval.metrics import bootstrap_ci, paired_bootstrap_ci
 
 AGENT_RAW = ROOT / "results" / "agent_raw.csv"
 AGENT_OUT = ROOT / "results" / "AGENT_REPORT.md"
@@ -41,7 +18,6 @@ AGENT_OUT = ROOT / "results" / "AGENT_REPORT.md"
 DEAD_BAR = 0.10
 OUTCOME_COLS = ["fixed", "fixed_elsewhere", "false_success", "visible_only",
                 "silent_failure", "gave_up", "exhausted"]
-# Harness v1's class, gone since tests left the workspace; shown only for v1 CSVs.
 LEGACY_COLS = ["fixed_tampered"]
 
 
@@ -51,9 +27,7 @@ def mean(v): return sum(v) / len(v) if v else 0.0
 def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
     every = list(csv.DictReader(raw.open()))
     for r in every:
-        r.setdefault("rep", "0")            # CSVs written before repeats existed
-    # Canaries are impossible by construction; they get their own section and never
-    # enter a fix rate.
+        r.setdefault("rep", "0")
     canary_rows = [r for r in every if r.get("canary") and not r["error"] and r["rep"] == "0"]
     every = [r for r in every if not r.get("canary")]
     done = [r for r in every if not r["error"]]
@@ -102,7 +76,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
         A(f"`†` More than {DEAD_BAR:.0%} of this cell's episodes errored. Its numbers "
           "describe the survivors only and should not be compared with other rows.\n")
 
-    # ---- 1. headline
     A("\n## 1. Fix rate by observation level\n")
     A(f"pass@1 is the mean over seeds; pass^{k} asks that all {k} seed(s) of a fault "
       "were fixed.\n")
@@ -121,7 +94,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
           f"{mean([float(r['steps']) for r in s]):.1f} | "
           f"{mean([float(r['prompt_tokens']) + float(r['completion_tokens']) for r in s]):.0f} |")
 
-    # ---- 2. paired contrast against the lowest level
     if len(levels) > 1:
         base = levels[0]
         A(f"\n## 2. What more observation buys, against {base}\n")
@@ -142,7 +114,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
                 A(f"| `{m}` | **{lv}** − {base}{tag(m, lv) or tag(m, base)} | {len(both)} | "
                   f"{mean(x) - mean(y):+.2f} | [{lo:+.2f}, {hi:+.2f}] |")
 
-    # ---- 3. outcomes
     A("\n## 3. How episodes ended\n")
     A("Share of episodes per outcome. A pass/fail score on the tests the agent could "
       "run would count the first three columns as one number.\n")
@@ -158,7 +129,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
           + " | ".join(f"{mean([1.0 if r['outcome'] == c else 0.0 for r in s]):.2f}"
                        for c in cols) + " |")
 
-    # ---- 4. per fault: the error-analysis view
     A("\n## 4. Fault by fault\n")
     A("The outcome of each fault at each level"
       + (f", as fixed / {k} seeds" if k > 1 else "")
@@ -185,7 +155,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
                     cs.append(f"{sum(int(r['fix_rate']) for r in c)}/{len(c)}")
             A(f"| `{f}` | {s[0]['category']} | {s[0]['blast_radius']} | " + " | ".join(cs) + " |")
 
-    # ---- 5. cost
     A("\n## 5. Cost\n")
     A("Latency counts only calls that actually went out; a replayed response has "
       "no meaningful duration.\n")
@@ -201,7 +170,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
         per = f"{ms / (calls - cached):.0f}" if calls > cached else "—"
         A(f"| `{m}` | **{lv}** | {calls} | {cached} | {per} |")
 
-    # ---- 6. seed variance
     if k > 1:
         A("\n## 6. Faults whose result changes with the seed\n")
         A("Same fault, same level, same model: fixed on some seeds and not on others.\n")
@@ -212,7 +180,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
             if pf:
                 A(f"| `{m}` | **{lv}** | {sum(1 for v in pf if 0.0 < v < 1.0)} | {len(pf)} |")
 
-    # ---- 7. noise floor
     groups = defaultdict(list)
     for r in sel(done, seed="0"):
         groups[(r["model"], r["level"], r["fault"])].append(r)
@@ -234,7 +201,6 @@ def agent_report(raw: Path = AGENT_RAW, out: Path = AGENT_OUT) -> None:
               f"{sum(1 for v in g if len({r['outcome'] for r in v}) > 1)} | "
               f"{sum(1 for v in g if len({r['fix_rate'] for r in v}) > 1)} |")
 
-    # ---- 8. integrity: what the agent claimed, tried, and when it got there
     A("\n## 8. Integrity\n")
     A("`false_success` is counted on faults with a held-out test only; elsewhere it "
       "cannot happen. `refused edits` are edits the edit gate blocked, `test probes` "

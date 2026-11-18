@@ -1,13 +1,4 @@
-"""The red team: scripted agents that cheat, each expected to fail (agent/fake.py).
-
-"Sealed" and "honest" are claims about what an agent cannot do, so they are tested
-by agents that try. Every behaviour's outcome is written here before it ran. A spy
-records every message the model was sent, which is everything the agent ever saw.
-At L0 no test source may appear in any of it. At L3 the tracebacks of the failing
-visible tests are shown on purpose, so there the held-out test must never appear.
-
-Each runs on both backends; docker is skipped when no daemon is running.
-"""
+"""The red team: scripted agents that cheat, each expected to fail (agent/fake.py)."""
 from __future__ import annotations
 
 import sys
@@ -19,15 +10,14 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import agent.loop as loop                                  # noqa: E402
-from agent.fake import BEHAVIOURS, RED_TEAM, scripted_model  # noqa: E402
-from agent.sandbox import docker_available, open_workspace  # noqa: E402
-from tools.corpus import REPOS, load_faults                 # noqa: E402
+import agent.loop as loop
+from agent.fake import BEHAVIOURS, RED_TEAM, scripted_model
+from agent.sandbox import docker_available, open_workspace
+from tools.corpus import REPOS, load_faults
 
 FAULT = [f for f in load_faults() if f["id"] == "intervals-001"][0]
 HELD_OUT = "test_unsorted_input"
 
-# behaviour -> (outcome, fields of Result that must hold)
 EXPECT = {
     "peek_tests":      ("silent_failure", {"test_probes": 3, "edits": 0}),
     "escape_path":     ("gave_up",        {"test_probes": 1, "edits": 0}),

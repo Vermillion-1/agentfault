@@ -1,14 +1,4 @@
-"""Ranking metrics, scored against the fault label.
-
-Two granularities are reported because they answer different questions:
-
-  function-level -- did retrieval surface the function that actually contains the
-                    bug? This is the claim that matters and the one fault labels
-                    support exactly.
-  file-level     -- did it surface the right file? Weaker, and the claim most
-                    published retrieval evaluations actually make. Reported so the
-                    two are never conflated.
-"""
+"""Ranking metrics, scored against the fault label."""
 from __future__ import annotations
 
 from typing import Dict, List, Sequence
@@ -64,17 +54,7 @@ def bootstrap_ci(values: List[float], iters: int = 10000, seed: int = 0, alpha: 
 
 def paired_bootstrap_ci(a: List[float], b: List[float], iters: int = 10000,
                         seed: int = 0, alpha: float = 0.05):
-    """95% CI for mean(a - b), where a[i] and b[i] come from the SAME item.
-
-    Use this, not two separate intervals, whenever two conditions are run on the
-    same faults. An easy fault is easy under both conditions and a hard one is hard
-    under both, so most of the spread in each column is shared and cancels in the
-    difference. Two unpaired intervals keep that shared spread and can overlap even
-    when one condition wins on nearly every fault.
-
-    The interval excludes 0 exactly when the difference is distinguishable from
-    none at this sample size.
-    """
+    """95% CI for mean(a - b), where a[i] and b[i] come from the SAME item."""
     if len(a) != len(b):
         raise ValueError("paired samples must have the same length")
     return bootstrap_ci([x - y for x, y in zip(a, b)], iters=iters, seed=seed, alpha=alpha)

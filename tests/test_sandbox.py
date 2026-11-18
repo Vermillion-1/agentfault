@@ -1,15 +1,4 @@
-"""The sealed workspace and the grader (agent/sandbox.py), attacked on purpose.
-
-Each cheat is tried twice where it can be: through the edit gate, and with the
-gate switched off, so each layer is shown to hold on its own.
-
-  tests reachable from the workspace     -> the agent reads the answer
-  held-out test on disk during `test`     -> its body printed back at L3
-  "green" from pytest's return code       -> os._exit(0) scores as a fix
-  a missing test passes                   -> breaking collection scores as a fix
-  a hung test run                         -> a sweep that never ends
-  pytest config editable                  -> the agent reconfigures the grader
-"""
+"""The sealed workspace and the grader (agent/sandbox.py), attacked on purpose."""
 from __future__ import annotations
 
 import os
@@ -21,11 +10,11 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import agent.sandbox as sb                       # noqa: E402
-from agent.sandbox import junit_key, open_workspace  # noqa: E402
-from retrieval import query as Q                 # noqa: E402
-from tools.corpus import FAULTS, load_faults     # noqa: E402
-from tools.validate_grader import validate       # noqa: E402
+import agent.sandbox as sb
+from agent.sandbox import junit_key, open_workspace
+from retrieval import query as Q
+from tools.corpus import FAULTS, load_faults
+from tools.validate_grader import validate
 
 DOC = '    """Coalesce overlapping and adjacent intervals into a minimal sorted list."""\n'
 
@@ -87,8 +76,8 @@ def test_held_out_body_never_reaches_the_agent_without_the_gate(no_gate):
         name = ws.held_out[0].split("::")[-1]
         _plant(ws, "    import glob; print(''.join(open(p).read() for p in glob.glob('tests/*.py')))\n")
         run = ws.check()
-        assert "def test_" in run.output          # the leak itself works...
-        for level in Q.LEVELS:                     # ...but the held-out test is not there
+        assert "def test_" in run.output
+        for level in Q.LEVELS:
             assert name not in Q.build(run.output, level)
             assert "deselected" not in Q.build(run.output, level)
 
@@ -103,7 +92,6 @@ def test_a_missing_test_is_a_failure():
 
 
 def test_a_hung_test_run_times_out():
-    # An infinite loop is ordinary logic, so the gate allows it; the timeout stops it.
     with open_workspace(_fault(), timeout=3) as ws:
         out = ws.call("edit", {"path": "intervals/core.py", "old": DOC,
                                "new": DOC + "    while True:\n        pass\n"})

@@ -1,22 +1,4 @@
-"""The edit gate: an edit may change program logic, never gain a capability.
-
-The agent has no shell. The only code it writes runs in one place, pytest in the
-grader, so every cheat that works through code needs that code to reach outside
-the function it edits: exit the process early (pytest's return code reads 0), open
-and print the test files (they come back in the L3 observation), write a fake test
-report, or define `__eq__` to return True. Each needs a name the faulty source
-never had: `os`, `open`, `print`, a dunder. So an edit is rejected when it adds an
-identifier this module denies, a dunder, a private attribute, or an absolute import
-outside a small pure-stdlib allowlist (relative imports stay inside the source). Identifiers already in the file stay usable: the gate
-compares against the text before the edit, never against an absolute list.
-
-Standard library only, because it also runs inside the workspace container
-(agent/tools_fs.py imports it there).
-
-Measured: none of the 24 distinct edits gpt-oss-20b made in Phase D is refused; the
-only import among them adds `timedelta` from `datetime`, which is why `datetime` is
-allowed [spikes/2026-11-18-edit-gate/probe.py].
-"""
+"""The edit gate: an edit may change program logic, never gain a capability."""
 from __future__ import annotations
 
 import ast
@@ -28,9 +10,6 @@ ALLOWED_MODULES = frozenset({
     "typing",
 })
 
-# Reaching the process, the filesystem, the interpreter's internals, or output the
-# agent can read back. Module names are here too, so `typing.sys` is caught as an
-# attribute even though `typing` itself is allowed.
 DENIED = frozenset({
     "os", "sys", "subprocess", "builtins", "importlib", "ctypes", "gc", "inspect",
     "socket", "shutil", "pathlib", "glob", "io", "signal", "threading",
@@ -39,7 +18,6 @@ DENIED = frozenset({
     "open", "exec", "eval", "compile", "__import__", "globals", "locals", "vars",
     "getattr", "setattr", "delattr", "exit", "quit", "print", "input",
     "breakpoint", "help", "memoryview",
-    # Exceptions that end pytest itself rather than failing one test.
     "SystemExit", "KeyboardInterrupt", "GeneratorExit", "BaseException",
 })
 
@@ -81,10 +59,7 @@ def _parse(text: str):
 
 
 def violations(before: str, after: str) -> List[str]:
-    """What `after` adds that the gate forbids, relative to `before`. Empty is allowed.
-
-    Text that does not parse is allowed through: it cannot run, so it cannot cheat,
-    and the tests report the syntax error as a failure like any other."""
+    """What `after` adds that the gate forbids, relative to `before`. Empty is allowed."""
     new = _parse(after)
     if new is None:
         return []

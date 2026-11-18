@@ -1,26 +1,14 @@
 #!/usr/bin/env python3
-"""Turn one agentfault fault into a sealed Harbor task (spike, 2026-11-17).
-
-    cd <research checkout>                     # needs agent/sandbox.py (moves to
-    python3 ../agentfault/spikes/2026-11-17-harbor/make_task.py intervals-001 OUT_DIR   # public at D1)
-
-OUT_DIR must already hold a scaffold from `harbor task init`. The script fills it in:
-
-  environment/   the faulty source only; tests are moved out (agent/sandbox.py: _split)
-  instruction.md the L3 failure text from the VISIBLE tests (held-out deselected)
-  tests/         every pristine test, plus test.sh, which writes reward.json with
-                 `fixed` (all tests, held-out included) and `visible_pass`
-  solution/      the reference fix, for Harbor's `oracle` agent
-"""
+"""Turn one agentfault fault into a sealed Harbor task (spike, 2026-11-17)."""
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, ".")
-from agent import sandbox                     # noqa: E402
-from retrieval import query as Q              # noqa: E402
-from tools.corpus import load_faults          # noqa: E402
+from agent import sandbox
+from retrieval import query as Q
+from tools.corpus import load_faults
 
 fault_id, T = sys.argv[1], Path(sys.argv[2])
 f = [x for x in load_faults() if x["id"] == fault_id][0]

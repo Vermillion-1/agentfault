@@ -1,43 +1,5 @@
 #!/usr/bin/env python3
-"""Generate categorised faults mechanically, and let the gate decide which survive.
-
-    python3 tools/inject.py generate intervals --limit 200
-    python3 tools/inject.py generate ledger --out corpus/faults/generated
-
-WHY THIS WORKS WITHOUT A SCHEMA CHANGE
-
-A fault in corpus/faults/*.json is (file, anchor, replacement) plus a label. A
-mutation operator emits exactly that triple. And tools/corpus.py already refuses to
-TRUST `expected_failing_tests` -- it runs the suite and demands set equality.
-
-So the gate flips role. Hand-authored faults: a human writes the label, the gate
-checks it. Generated faults: the operator proposes a change, and THE GATE DISCOVERS
-THE LABEL AND FILTERS. The corpus builder and the validator are the same code.
-
-THE FILTERS, AND WHY EACH EXISTS
-
-  0 tests fail        -> equivalent mutant, or the code is untested. No signal, and
-                         no way to tell an agent it is wrong. Discard.
-  too many fail       -> the fault is everywhere, so "did the agent find it" is
-                         trivially yes. Localisation needs a bounded blast radius.
-  anchor not unique   -> materialise() requires exactly one occurrence, or an edit
-                         could silently land on the wrong line.
-  collection ERROR    -> a proxy for Gay & Salahirad (ICST 2023), who found that
-                         some operators produce mutants making the WRONG tests fail
-                         -- labelled, but with a failure signature unlike any real
-                         fault. A pytest ERROR means import/collection broke, which
-                         is a syntax-class failure we are not trying to generate.
-                         This is a PROXY, not their criterion: the full version
-                         needs coverage data to check the failing tests actually
-                         exercise the mutated function. Documented, not hidden.
-
-ON CATEGORY BALANCE
-
-cosmic-ray only emits syntactically valid Python, so this corpus is Logic-heavy by
-construction. That is deliberate. DebugBench and RepoDebug are dominated by Syntax
-and Reference errors, which a linter catches -- a benchmark weighted that way can be
-scored well by a linter wrapper.
-"""
+"""Generate categorised faults mechanically, and let the gate decide which survive."""
 from __future__ import annotations
 
 import argparse
@@ -53,16 +15,11 @@ from typing import Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from retrieval.chunk import chunk_file          # noqa: E402
-from tools.corpus import REPOS, run_pytest      # noqa: E402
+from retrieval.chunk import chunk_file
+from tools.corpus import REPOS, run_pytest
 
 G, R, Y, DIM, B, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
 
-# --- operator -> (ODC Type, ODC Qualifier, our coarse category) ------------------
-#
-# ODC is Chillarege et al., IEEE TSE 1992. Qualifier is the axis that matters here:
-# mutation operators are good at Incorrect and structurally poor at Missing, which
-# is why whole ODC cells are unreachable. docs/TAXONOMY.md records which.
 
 BOUNDARY_SWAPS = {("Lt", "LtE"), ("LtE", "Lt"), ("Gt", "GtE"), ("GtE", "Gt")}
 
@@ -101,12 +58,8 @@ def classify(op_name: str) -> Tuple[str, str, str]:
     return ("Algorithm", "Incorrect", "logic_error")
 
 
-# --- candidate generation --------------------------------------------------------
-
 def single_hunk(before: str, after: str) -> Optional[Tuple[str, str, int]]:
-    """Return (anchor, replacement, 1-based line) when the change is one contiguous
-    run of lines. Multi-hunk mutations are skipped: the schema anchors on one snippet,
-    and a multi-hunk fault muddies structural-scope labelling anyway."""
+    """Return (anchor, replacement, 1-based line) when the change is one contiguous"""
     a, b = before.splitlines(), after.splitlines()
     sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
     ops = [o for o in sm.get_opcodes() if o[0] != "equal"]
@@ -148,7 +101,7 @@ def candidates(repo: Path, rel: str, max_per_operator: int) -> List[dict]:
                 continue
             anchor, replacement, line = hunk
             if not anchor.strip() or src.count(anchor) != 1:
-                continue          # materialise() needs exactly one occurrence
+                continue
             fn = owning_function(repo, rel, line)
             if fn is None:
                 continue
@@ -160,8 +113,6 @@ def candidates(repo: Path, rel: str, max_per_operator: int) -> List[dict]:
             })
     return out
 
-
-# --- the gate, used as a filter --------------------------------------------------
 
 def screen(repo_name: str, cands: List[dict], max_fail_frac: float,
            total_tests: int, timeout: float = 20.0) -> Tuple[List[dict], Dict[str, int]]:
@@ -183,14 +134,12 @@ def screen(repo_name: str, cands: List[dict], max_fail_frac: float,
             _, failing = run_pytest(dest, timeout=timeout)
 
         if failing == ["<timeout>"]:
-            # The mutant hangs. Real category, not an error in our tooling.
             reasons["nonterminating"] += 1
             continue
         if not failing:
             reasons["no_failures"] += 1
             continue
         if any("::" not in f for f in failing):
-            # a bare file path rather than a test node id means collection failed
             reasons["collection_error"] += 1
             continue
         if total_tests and len(failing) / total_tests > max_fail_frac:

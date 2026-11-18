@@ -1,7 +1,4 @@
-"""The docker backend gives the same episode as the local one (skipped without a daemon).
-
-  backends that differ    -> offline tests that prove nothing about live runs
-"""
+"""The docker backend gives the same episode as the local one (skipped without a daemon)."""
 from __future__ import annotations
 
 import sys
@@ -12,11 +9,11 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import agent.loop as loop                                  # noqa: E402
-from agent.fake import scripted_model                      # noqa: E402
-from agent.sandbox import docker_available, open_workspace  # noqa: E402
-from tools.corpus import FAULTS, load_faults               # noqa: E402
-from tools.validate_grader import validate                 # noqa: E402
+import agent.loop as loop
+from agent.fake import scripted_model
+from agent.sandbox import docker_available, open_workspace
+from tools.corpus import FAULTS, load_faults
+from tools.validate_grader import validate
 
 pytestmark = pytest.mark.skipif(not docker_available(), reason="no docker daemon")
 HAND = [f for f in load_faults() if f["_path"].parent == FAULTS]

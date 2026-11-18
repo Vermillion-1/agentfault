@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Check the grader against the known truth of every fault, SWE-bench style.
-
-For each fault, on a fresh workspace:
-
-  null patch   the faulty code as planted: grade() is red, and the failing tests
-               are exactly the fault's expected_failing_tests
-  visible      check() fails exactly the expected tests minus the held-out one, and
-               neither its results nor its output name the held-out test
-  true fix     undo the fault through the agent's own edit tool: grade() and
-               check() are both green, so the edit gate let the fix through
-
-    python3 tools/validate_grader.py                  # the 12 hand-written faults
-    python3 tools/validate_grader.py --all            # all 223
-    python3 tools/validate_grader.py --sandbox docker
-
-A grader that fails any of these would score agents against the wrong truth.
-"""
+"""Check the grader against the known truth of every fault, SWE-bench style."""
 from __future__ import annotations
 
 import argparse
@@ -26,8 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agent.sandbox import BACKENDS, junit_key, open_workspace  # noqa: E402
-from tools.corpus import FAULTS, REPOS, load_faults             # noqa: E402
+from agent.sandbox import BACKENDS, junit_key, open_workspace
+from tools.corpus import FAULTS, REPOS, load_faults
 
 
 def validate(fault: dict, backend: str = "local") -> dict:
@@ -65,8 +49,6 @@ def validate(fault: dict, backend: str = "local") -> dict:
             if "edited" not in out:
                 problems.append(f"fix: edit tool refused: {out}")
         else:
-            # The planted text is not unique, so the edit tool cannot express the
-            # fix; restore the file instead. The gate still checks it at grading.
             (ws.root / fault["file"]).write_text((REPOS / fault["repo"] / fault["file"]).read_text())
         for name, fn in (("grade", ws.grade), ("check", ws.check)):
             run = timed(fn)

@@ -1,44 +1,4 @@
-"""Where the agent's tools run and where the tests run. The agent never sees a test.
-
-A Workspace is the agent's checkout: the faulty source and nothing else. The test
-files are never copied into it, so no path the agent guesses can reach them. Tests
-live in separate folders and run in a separate place, the grader, which joins a
-copy of the workspace source with the tests for each run and reports back.
-
-    with open_workspace(fault, "docker") as ws:
-        ws.call("read", {"path": "intervals/core.py"})   # the agent's file tools
-        ws.check()                                       # what the agent's `test` runs
-        ws.grade()                                       # scoring: every test
-
-Two backends, one behaviour:
-
-  docker  live runs. The workspace is a container with no network that holds only
-          the source; the agent's tools run inside it. Each test run is a fresh,
-          throwaway, locked-down grader container. Image: docker/Dockerfile.
-  local   offline tests (no Docker, no network). The same layout in temp folders.
-          It does not contain the code it runs, so it is for trusted, scripted
-          agents only.
-
-THE HELD-OUT TEST
-
-For a fault that breaks two or more tests, the last failing node id in sorted
-order is held out. The rule looks only at test names, never at outcomes, so it
-cannot be tuned to a result. The agent's `check()` runs a copy of the tests with
-that test function DELETED, not deselected: a deselected test's file is still on
-disk, and source code the agent edits could print it into the L3 output
-[spikes/2026-11-17-grader-holes]. Deleting it agrees with --deselect on all 166
-faults that have a held-out test [same spike].
-
-WHAT "GREEN" MEANS
-
-Never pytest's return code: `os._exit(0)` in the source makes that 0 with nothing
-run [same spike]. Green means pytest wrote a JUnit report, the report lists exactly
-the tests collected from the pristine suite, and every one passed. A missing test
-is a failure, as in SWE-bench. Only files that were in the workspace at the start
-are copied to the grader, only `.py` files are taken from the agent's side (a
-pyproject.toml configures pytest), and each is checked against the edit gate again
-(agent/policy.py) before any of it runs.
-"""
+"""Where the agent's tools run and where the tests run. The agent never sees a test."""
 from __future__ import annotations
 
 import ast
@@ -66,12 +26,8 @@ IMAGE = "agentfault-sandbox:1"
 BACKENDS = ("docker", "local")
 GRADE_TIMEOUT = 60.0
 
-# The flags of retrieval/query.py: run_suite, so test output reads the same as in
-# the retrieval sweep and in harness v1.
 PYTEST = ["-m", "pytest", "-q", "--no-header", "-rf", "--tb=long", "-p", "no:cacheprovider"]
 
-# The grader container: no network, nothing writable but scratch space, no root,
-# no capabilities, bounded processes and memory.
 LOCKDOWN = ["--network", "none", "--read-only", "--user", "65534:65534",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g",
@@ -86,7 +42,7 @@ class Run:
     results: Dict[str, bool] = field(default_factory=dict)
     output: str = ""
     timed_out: bool = False
-    refused: Tuple[str, ...] = ()       # edit-gate violations found at grading
+    refused: Tuple[str, ...] = ()
 
     def failing(self) -> List[str]:
         return sorted(k for k, ok in self.results.items() if not ok)
@@ -125,12 +81,7 @@ def strip_test(tests: Path, node: str) -> None:
 
 
 def _split(fault: dict, td: Path) -> Tuple[Path, Path, Path, Path]:
-    """Lay out one episode: (workspace, start, visible, all).
-
-    workspace  the faulty source, no test file; the agent's tools act on it
-    start      a frozen copy of the workspace, what the edit gate compares against
-    visible    every test minus the held-out function; the agent's `test` runs it
-    all        every test, pristine; grading runs it"""
+    """Lay out one episode: (workspace, start, visible, all)."""
     full = materialise(fault, td / "full")
     ws, start, vis, alltests = td / "workspace", td / "start", td / "visible", td / "all"
     for p in test_files(full):
@@ -141,12 +92,10 @@ def _split(fault: dict, td: Path) -> Tuple[Path, Path, Path, Path]:
     shutil.rmtree(full / ".pytest_cache", ignore_errors=True)
     for d in sorted((d for d in full.rglob("*") if d.is_dir()), reverse=True):
         if not any(d.iterdir()):
-            d.rmdir()            # a tests/ folder emptied by the move
+            d.rmdir()
     full.rename(ws)
     canary = fault.get("canary")
     if canary:
-        # An impossible fault (tools/canaries.py): one test is added beside the one
-        # it contradicts, in every test set, so the agent's runs include it too.
         path = alltests / canary["test_file"]
         lines = path.read_text().splitlines(keepends=True)
         n = canary["insert_after_line"]
@@ -185,8 +134,7 @@ def _read_junit(xml: Path) -> Optional[Dict[str, bool]]:
 
 
 def collect(source: Path, tests: Path) -> Tuple[str, ...]:
-    """The node ids pytest collects from the pristine source and `tests`, run on the
-    host: both are trusted, and the set must not depend on the backend."""
+    """The node ids pytest collects from the pristine source and `tests`, run on the"""
     with tempfile.TemporaryDirectory() as td:
         work = Path(td) / "work"
         shutil.copytree(source, work)
@@ -231,12 +179,10 @@ class Workspace:
             src = Path(td) / "src"
             refused = []
             for rel in self.files:
-                # Only source code comes from the agent's side. Anything else, such
-                # as pyproject.toml, configures pytest and comes from the start copy.
                 was = self.start / rel
                 now = self.root / rel if rel.endswith(".py") else was
                 if not now.is_file():
-                    continue      # the tools cannot delete a file; nothing to copy
+                    continue
                 dest = src / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(now, dest)
@@ -286,8 +232,6 @@ class DockerWorkspace(Workspace):
     def __init__(self, fault: dict, td: Path, timeout: float = GRADE_TIMEOUT):
         super().__init__(fault, td, timeout)
         ensure_image()
-        # The tools are ours and trusted, but the container gets no more than they
-        # need: no network, no capabilities, a read-only root.
         self.cid = _docker(
             "run", "-d", "--rm", "--network", "none", "--read-only",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
